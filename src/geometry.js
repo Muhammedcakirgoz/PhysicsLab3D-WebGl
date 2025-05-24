@@ -103,5 +103,42 @@ export function createCurvedRamp(segmentCount = 32, width = 1.2, length = 10, th
   };
 }
 
+export function createCylinder(radius = 0.5, height = 1, segments = 24) {
+  const positions = [];
+  const normals = [];
+  const indices = [];
+
+  for (let i = 0; i <= segments; i++) {
+    const theta = (i / segments) * 2 * Math.PI;
+    const x = Math.cos(theta) * radius;
+    const z = Math.sin(theta) * radius;
+
+    // Alt ve üst yüzey noktaları
+    positions.push(x, -height/2, z);
+    positions.push(x,  height/2, z);
+
+    // Normaller
+    normals.push(x, 0, z);
+    normals.push(x, 0, z);
+  }
+
+  for (let i = 0; i < segments; i++) {
+    const p0 = i * 2;
+    const p1 = p0 + 1;
+    const p2 = ((i + 1) % (segments + 1)) * 2;
+    const p3 = p2 + 1;
+
+    // Yan yüzeyler
+    indices.push(p0, p2, p1);
+    indices.push(p1, p2, p3);
+  }
+
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals),
+    indices: new Uint16Array(indices)
+  };
+}
+
 
 

@@ -1,10 +1,10 @@
 import { mat4, vec3 }                     from './lib/gl-matrix/index.js';
 import { GUI }                            from './lib/dat.gui.module.js';
 import { createProgram }                  from './webgl-utils.js';
-import { createBox, createSphere, createCurvedRamp } from './geometry.js';
+import { createBox, createSphere, createCurvedRamp, createCylinder } from './geometry.js';
 import { Camera }                         from './camera.js';
 import { Body }                           from './physics.js';
-import { setupKeyboard }                  from './controls.js';
+import { setupKeyboard, setupGUI, moveObject } from './controls.js';
 import { CameraController }               from './camera-controls.js';
 import { loadTexture }                    from './texture-loader.js';
 
@@ -83,6 +83,7 @@ const sphereGeo = setupGeometry(createSphere(0.5, 16, 16));
 const ramp1Geo = setupGeometry(createCurvedRamp());
 const ramp2Geo = setupGeometry(createCurvedRamp());
 const ramp3Geo = setupGeometry(createCurvedRamp());
+const cylinderGeo = setupGeometry(createCylinder(0.5, 1, 24));
 
 
 
@@ -118,6 +119,11 @@ let objects = [
 const gui = new GUI();
 const nesnePanel = gui.addFolder('Yeni Nesne Ekle');
 
+const keyState = {};
+setupKeyboard(keyState);
+const ctrl = setupGUI(objects, cam);
+
+let nesneSayaci = { 'Kutu': 1, 'Küre': 1, 'Silindir': 1 };
 const state = {
   tür: 'Küre',
   şerit: 'Orta',
@@ -131,34 +137,42 @@ const state = {
     const rampY = z => -Math.tanh(z / 2) * 2;
     const posY = rampY(posZ) + 0.5; // rampanın üstüne 0.5 birim yükseklikten
 
-    let yeni;
+    let yeni, isim;
     if (state.tür === 'Kutu') {
+      isim = `Kutu ${nesneSayaci['Kutu']++}`;
       yeni = {
-        name: 'Kutu',
+        name: isim,
         geo: boxGeo,
         pos: [posX, posY, posZ],
         texture: rubberTexture,
-        body: new Body([posX, posY, posZ], 1, 0.6)
+        body: new Body([posX, posY, posZ], 1, 0.6, 0, 1),
+        isStatic: true
       };
     } else if (state.tür === 'Küre') {
+      isim = `Küre ${nesneSayaci['Küre']++}`;
       yeni = {
-        name: 'Küre',
+        name: isim,
         geo: sphereGeo,
         pos: [posX, posY, posZ],
         texture: metalTexture,
-        body: new Body([posX, posY, posZ], 1, 0.1)
+        body: new Body([posX, posY, posZ], 1, 0.1, 0.5, 1),
+        isStatic: true
       };
     } else if (state.tür === 'Silindir') {
+      isim = `Silindir ${nesneSayaci['Silindir']++}`;
       yeni = {
-        name: 'Silindir',
-        geo: boxGeo,
+        name: isim,
+        geo: cylinderGeo,
         pos: [posX, posY, posZ],
         texture: woodTexture,
-        body: new Body([posX, posY, posZ], 1, 0.3)
+        body: new Body([posX, posY, posZ], 1, 0.3, 0.5, 1),
+        isStatic: true
       };
     }
 
     objects.push(yeni);
+    ctrl.updateList();
+    ctrl.selected = yeni.name; // Otomatik olarak yeni eklenen nesneyi seç
   }
 };
 
@@ -169,23 +183,32 @@ nesnePanel.add(state, 'şerit', ['Sol', 'Orta', 'Sağ']).name('Şerit');
 nesnePanel.add(state, 'ekle').name('Ekle');
 nesnePanel.open();
 
-
-const keyState = {};
-setupKeyboard(keyState);
-
 function animate() {
   requestAnimationFrame(animate);
-  camCtrl.update();
+
+  if (ctrl.mode === 'camera') {
+    camCtrl.update();
+  } else {
+    // Seçili nesneyi bul ve hareket ettir
+    const selectedObject = objects.find(o => o.name === ctrl.selected);
+    if (selectedObject) {
+      moveObject(selectedObject, keyState);
+    }
+  }
+
   const dt = 1 / 60;
 
   objects.forEach(o => {
     if (o.body && o.body.mass > 0) {
-      o.body.step(dt);
-      if (o.body.pos[1] < -1.2) {
-        o.body.pos[1] = -1.2;
-        o.body.vel[1] = 0;
+      // Sadece isStatic:false olanlar fizik simülasyonuna girsin
+      if (!o.isStatic) {
+        o.body.step(dt);
+        if (o.body.pos[1] < -1.2) {
+          o.body.pos[1] = -1.2;
+          o.body.vel[1] = 0;
+        }
+        o.pos = [...o.body.pos];
       }
-      o.pos = [...o.body.pos];
     }
   });
 
