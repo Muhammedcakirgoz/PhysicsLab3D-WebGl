@@ -1,0 +1,15 @@
+{
+  "name": "physicslab3d-webgl",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "parcel src/index.html --open",
+    "build": "parcel build src/index.html"
+  },
+  "dependencies": {
+    "gl-matrix": "^4.1.2",
+    "dat.gui": "^0.7.7"
+  },
+  "devDependencies": {
+    "parcel": "^2.0.0"
+  }
+}

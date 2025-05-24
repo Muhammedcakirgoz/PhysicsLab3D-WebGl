@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <title>PhysicsLab 3D – WebGL</title>
+  <style>
+    body, html { margin:0; padding:0; width:100%; height:100%; overflow:hidden; }
+    canvas { display:block; width:100%; height:100%; }
+  </style>
+
+  <!-- Import Map -->
+  <script type="importmap">
+  {
+    "imports": {
+      "gl-matrix": "./lib/gl-matrix/index.js",
+      "dat.gui":    "./lib/dat.gui.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="glcanvas"></canvas>
+
+  <!-- Ana modülümüz -->
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
