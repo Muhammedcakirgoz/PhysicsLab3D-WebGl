@@ -1,248 +1,179 @@
-import { mat4, vec3 }                     from './lib/gl-matrix/index.js';
-import { GUI }                            from './lib/dat.gui.module.js';
-import { createProgram }                  from './webgl-utils.js';
-import { createBox, createSphere, createCurvedRamp, createCylinder } from './geometry.js';
-import { Camera }                         from './camera.js';
-import { Body }                           from './physics.js';
-import { setupKeyboard, setupGUI, moveObject } from './controls.js';
-import { CameraController }               from './camera-controls.js';
-import { loadTexture }                    from './texture-loader.js';
+// physicslab3d-threejs/src/main.js
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import * as CANNON from 'cannon-es';
+import GUI from 'lil-gui';
 
+// Renderer & Scene
+const canvas   = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+const scene    = new THREE.Scene();
+scene.background = new THREE.Color(0x202020);
 
-const canvas = document.getElementById('glcanvas');
-const gl = canvas.getContext('webgl2');
-if (!gl) throw new Error('WebGL2 desteklenmiyor!');
-canvas.width  = window.innerWidth;
-canvas.height = window.innerHeight;
-gl.viewport(0, 0, canvas.width, canvas.height);
+// Camera & Controls
+const camera   = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+camera.position.set(10, 10, 20);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
 
-// Shader kaynakları
-const vsSrc = `#version 300 es
-in vec3 aPosition;
-in vec3 aNormal;
-uniform mat4 uModel, uView, uProj;
-out vec3 vNormal;
-void main(){
-  gl_Position = uProj * uView * uModel * vec4(aPosition, 1);
-  vNormal    = mat3(uModel) * aNormal;
-}`;
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+dirLight.position.set(5, 10, 7.5);
+scene.add(dirLight);
 
-const fsSrc = `#version 300 es
-precision highp float;
-in vec3 vNormal;
-uniform vec3 uLightDir;
-uniform sampler2D uTexture;
-out vec4 outColor;
-void main(){
-  vec3 normal = normalize(vNormal);
-  float diff = max(dot(normal, normalize(uLightDir)), 0.0);
-  float light = 0.3 + 0.7 * diff; // ambient + diffuse
-  vec4 texColor = texture(uTexture, vec2(0.5, 0.5));
-  outColor = vec4(texColor.rgb * light, 1.0);
-}`;
+// Physics world
+const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.81, 0) });
+world.broadphase = new CANNON.NaiveBroadphase();
 
-const program = createProgram(gl, vsSrc, fsSrc);
-gl.useProgram(program);
-
-const cam = new Camera(canvas.width / canvas.height);
-cam.pos = [0, 2, 6];      // Kamera biraz yukarıdan ve geriden baksın
-cam.target = [0, 0, 0];   // Sahne merkezine baksın
-const camCtrl = new CameraController(canvas, cam);
-cam.updateView();
-
-function setupGeometry(geo) {
-  const vao = gl.createVertexArray();
-  gl.bindVertexArray(vao);
-
-  const vbo = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-  gl.bufferData(
-    gl.ARRAY_BUFFER,
-    geo.positions.byteLength + geo.normals.byteLength,
-    gl.STATIC_DRAW
-  );
-  gl.bufferSubData(gl.ARRAY_BUFFER, 0, geo.positions);
-  gl.bufferSubData(gl.ARRAY_BUFFER, geo.positions.byteLength, geo.normals);
-
-  const ibo = gl.createBuffer();
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geo.indices, gl.STATIC_DRAW);
-
-  const posLoc  = gl.getAttribLocation(program, 'aPosition');
-  const normLoc = gl.getAttribLocation(program, 'aNormal');
-  gl.enableVertexAttribArray(posLoc);
-  gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
-  gl.enableVertexAttribArray(normLoc);
-  gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, geo.positions.byteLength);
-
-  return { vao, count: geo.indices.length };
-}
-
-const boxGeo    = setupGeometry(createBox(1,1,1));
-const sphereGeo = setupGeometry(createSphere(0.5, 16, 16));
-const ramp1Geo = setupGeometry(createCurvedRamp());
-const ramp2Geo = setupGeometry(createCurvedRamp());
-const ramp3Geo = setupGeometry(createCurvedRamp());
-const cylinderGeo = setupGeometry(createCylinder(0.5, 1, 24));
-
-
-
-const metalTexture  = loadTexture(gl, './assets/textures/metal.jpg');
-const rubberTexture = loadTexture(gl, './assets/textures/rubber.jpg');
-const woodTexture   = loadTexture(gl, './assets/textures/wood.jpg');
-
-let objects = [
-  {
-    name: 'Ramp 1',
-    geo: ramp1Geo,
-    pos: [-2.5, 0, 0], // sola kaydır
-    texture: metalTexture,
-    body: new Body([-2.5, 0, 0], 0)
-  },
-  {
-    name: 'Ramp 2',
-    geo: ramp2Geo,
-    pos: [0, 0, 0],
-    texture: woodTexture,
-    body: new Body([0, 0, 0], 0)
-  },
-  {
-    name: 'Ramp 3',
-    geo: ramp3Geo,
-    pos: [2.5, 0, 0], // sağa kaydır
-    texture: rubberTexture,
-    body: new Body([2.5, 0, 0], 0)
-  }
-];
-
-
-const gui = new GUI();
-const nesnePanel = gui.addFolder('Yeni Nesne Ekle');
-
-const keyState = {};
-setupKeyboard(keyState);
-const ctrl = setupGUI(objects, cam);
-
-let nesneSayaci = { 'Kutu': 1, 'Küre': 1, 'Silindir': 1 };
-const state = {
-  tür: 'Küre',
-  şerit: 'Orta',
-  ekle: () => {
-    let posX = 0;
-    if (state.şerit === 'Sol')   posX = -2.5;
-    if (state.şerit === 'Orta')  posX = 0;
-    if (state.şerit === 'Sağ')   posX = 2.5;
-
-    const posZ = -5; // rampanın başı Z ekseninde buradan başlıyorsa
-    const rampY = z => -Math.tanh(z / 2) * 2;
-    const posY = rampY(posZ) + 0.5; // rampanın üstüne 0.5 birim yükseklikten
-
-    let yeni, isim;
-    if (state.tür === 'Kutu') {
-      isim = `Kutu ${nesneSayaci['Kutu']++}`;
-      yeni = {
-        name: isim,
-        geo: boxGeo,
-        pos: [posX, posY, posZ],
-        texture: rubberTexture,
-        body: new Body([posX, posY, posZ], 1, 0.6, 0, 1),
-        isStatic: true
-      };
-    } else if (state.tür === 'Küre') {
-      isim = `Küre ${nesneSayaci['Küre']++}`;
-      yeni = {
-        name: isim,
-        geo: sphereGeo,
-        pos: [posX, posY, posZ],
-        texture: metalTexture,
-        body: new Body([posX, posY, posZ], 1, 0.1, 0.5, 1),
-        isStatic: true
-      };
-    } else if (state.tür === 'Silindir') {
-      isim = `Silindir ${nesneSayaci['Silindir']++}`;
-      yeni = {
-        name: isim,
-        geo: cylinderGeo,
-        pos: [posX, posY, posZ],
-        texture: woodTexture,
-        body: new Body([posX, posY, posZ], 1, 0.3, 0.5, 1),
-        isStatic: true
-      };
-    }
-
-    objects.push(yeni);
-    ctrl.updateList();
-    ctrl.selected = yeni.name; // Otomatik olarak yeni eklenen nesneyi seç
-  }
+// Materials
+const loader = new THREE.TextureLoader();
+const mats = {
+  wood:   new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/wood.jpg'),   metalness:0.2, roughness:0.7 }),
+  metal:  new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/metal.jpg'),  metalness:0.8, roughness:0.2 }),
+  rubber: new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/rubber.jpg'), metalness:0.1, roughness:0.9 })
 };
 
+// Top & Bottom Platforms
+const size    = 12;
+const topMesh = new THREE.Mesh(new THREE.BoxGeometry(size, 0.2, size), mats.wood);
+topMesh.position.set(0, 0.1, 7.8);
+scene.add(topMesh);
+const topBody = new CANNON.Body({ mass: 0 });
+topBody.addShape(new CANNON.Box(new CANNON.Vec3(size/2, 0.1, size/2)));
+topBody.position.copy(topMesh.position);
+world.addBody(topBody);
 
-// GUI seçenekleri
-nesnePanel.add(state, 'tür', ['Kutu', 'Küre', 'Silindir']).name('Nesne Türü');
-nesnePanel.add(state, 'şerit', ['Sol', 'Orta', 'Sağ']).name('Şerit');
-nesnePanel.add(state, 'ekle').name('Ekle');
-nesnePanel.open();
+const botMesh = new THREE.Mesh(new THREE.BoxGeometry(size, 0.2, size), mats.wood);
+botMesh.position.set(0, -2.1, -7.8);
+scene.add(botMesh);
+const botBody = new CANNON.Body({ mass: 0 });
+botBody.addShape(new CANNON.Box(new CANNON.Vec3(size/2, 0.1, size/2)));
+botBody.position.copy(botMesh.position);
+world.addBody(botBody);
 
+// Ramp parameters (exactly like your original)
+const rampGeo   = new THREE.BoxGeometry(4, 0.3, 4);
+const rampAngle = -Math.PI / 6;
+const rampLanes = { 'Sol Şerit': -4, 'Orta Şerit': 0, 'Sağ Şerit': 4 };
+
+// Dynamic objects collection
+const objects = [];
+
+// Keyboard state
+const keyState = {};
+window.addEventListener('keydown', e => keyState[e.key.toLowerCase()] = true);
+window.addEventListener('keyup',   e => keyState[e.key.toLowerCase()] = false);
+
+// GUI setup
+const gui          = new GUI();
+const controlF     = gui.addFolder('Kontrol Modu');
+const controlState = {
+  mode:    'object',
+  spawn:   'Düzlem',
+  lane:    'Sol Şerit',
+  cameraZ: camera.position.z,
+  type:    'Küre'          // sadece spawnObject için
+};
+controlF.add(controlState,'mode',    ['object','camera']).name('Mod');
+controlF.add(controlState,'spawn',   ['Düzlem','Alt Düzlem']).name('Obje Spawn');
+controlF.add(controlState,'lane',    Object.keys(rampLanes)).name('Şerit');
+controlF.add(controlState,'cameraZ', 1,30).name('Kamera Z').onChange(z => camera.position.z = z);
+controlF.add(controlState,'type',    ['Küre','Kutu','Silindir']).name('Tür');
+controlF.open();
+
+const addF = gui.addFolder('Yeni Nesne Ekle');
+addF.add({ spawnObject }, 'spawnObject').name('Obje Ekle');
+addF.add({ addRamp },     'addRamp').    name('Rampa Ekle');
+addF.open();
+
+// ALWAYS adds a ramp—no type-check here
+function addRamp() {
+  const x = rampLanes[ controlState.lane ];
+  // Three.js mesh
+  const mesh = new THREE.Mesh(rampGeo, mats.wood);
+  mesh.position.set(x, -1, 0);
+  mesh.rotation.x = rampAngle;
+  scene.add(mesh);
+
+  // Cannon-es body
+  const half = new CANNON.Vec3(2, 0.15, 2);
+  const body = new CANNON.Body({ mass: 0 });
+  body.addShape(new CANNON.Box(half));
+  body.position.copy(mesh.position);
+  body.quaternion.copy(mesh.quaternion);
+  world.addBody(body);
+}
+
+// Spawns a sphere/box/cylinder on chosen platform
+function spawnObject() {
+  const half = 0.5;
+  let pos;
+  if (controlState.spawn === 'Düzlem') {
+    pos = new THREE.Vector3(0, topMesh.position.y + half, topMesh.position.z);
+  } else {
+    pos = new THREE.Vector3(0, botMesh.position.y + half, botMesh.position.z);
+  }
+
+  let mesh, body;
+  if (controlState.type === 'Kutu') {
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mats.rubber);
+    body = new CANNON.Body({ mass:1, shape:new CANNON.Box(new CANNON.Vec3(0.5,0.5,0.5)) });
+  } else if (controlState.type === 'Küre') {
+    mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5,16,16), mats.metal);
+    body = new CANNON.Body({ mass:1, shape:new CANNON.Sphere(0.5) });
+  } else {
+    mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,1,16), mats.wood);
+    const cyl = new CANNON.Cylinder(0.5,0.5,1,16);
+    const q   = new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(0,0,1), Math.PI/2);
+    body  = new CANNON.Body({ mass:1 });
+    body.addShape(cyl, new CANNON.Vec3(), q);
+  }
+
+  mesh.position.copy(pos);
+  scene.add(mesh);
+  body.position.copy(pos);
+  world.addBody(body);
+  objects.push({ mesh, body });
+}
+
+// Animation loop
 function animate() {
   requestAnimationFrame(animate);
 
-  if (ctrl.mode === 'camera') {
-    camCtrl.update();
-  } else {
-    // Seçili nesneyi bul ve hareket ettir
-    const selectedObject = objects.find(o => o.name === ctrl.selected);
-    if (selectedObject) {
-      moveObject(selectedObject, keyState);
+  if (controlState.mode === 'object' && objects.length) {
+    const b = objects[objects.length - 1].body;
+    const v = 0.1;
+    if (keyState['w']) b.position.z -= v;
+    if (keyState['s']) b.position.z += v;
+    if (keyState['a']) b.position.x -= v;
+    if (keyState['d']) b.position.x += v;
+
+    // lock Y
+    if (controlState.spawn === 'Düzlem') {
+      b.position.y = topMesh.position.y + 0.5;
+      b.velocity.set(0,0,0);
+    } else {
+      b.position.y = botMesh.position.y + 0.5;
+      b.velocity.set(0,0,0);
     }
   }
 
-  const dt = 1 / 60;
-
+  world.step(1/60);
   objects.forEach(o => {
-    if (o.body && o.body.mass > 0) {
-      // Sadece isStatic:false olanlar fizik simülasyonuna girsin
-      if (!o.isStatic) {
-        o.body.step(dt);
-        if (o.body.pos[1] < -1.2) {
-          o.body.pos[1] = -1.2;
-          o.body.vel[1] = 0;
-        }
-        o.pos = [...o.body.pos];
-      }
-    }
+    o.mesh.position.copy(o.body.position);
+    o.mesh.quaternion.copy(o.body.quaternion);
   });
 
-  gl.clearColor(0.1, 0.1, 0.1, 1);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  gl.enable(gl.DEPTH_TEST);
-
-  gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uView'), false, cam.view);
-  gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uProj'), false, cam.proj);
-
-  const lightDir = vec3.fromValues(0.4, 1, 0.5);
-  gl.uniform3fv(gl.getUniformLocation(program, 'uLightDir'), lightDir);
-
-  objects.forEach(o => {
-    const m = mat4.create();
-    mat4.translate(m, m, o.pos);
-    if (o.rotX) mat4.rotateX(m, m, o.rotX);
-
-    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'uModel'), false, m);
-
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, o.texture);
-    gl.uniform1i(gl.getUniformLocation(program, 'uTexture'), 0);
-
-    gl.bindVertexArray(o.geo.vao);
-    gl.drawElements(gl.TRIANGLES, o.geo.count, gl.UNSIGNED_SHORT, 0);
-  });
+  controls.update();
+  renderer.render(scene, camera);
 }
-
 animate();
 
+// window resize
 window.addEventListener('resize', () => {
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
-  gl.viewport(0, 0, canvas.width, canvas.height);
-  cam.proj = mat4.perspective(mat4.create(), Math.PI / 4, canvas.width / canvas.height, 0.1, 1000);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
