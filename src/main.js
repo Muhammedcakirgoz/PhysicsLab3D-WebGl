@@ -5,6 +5,18 @@ import * as CANNON from 'cannon-es';
 import GUI from 'lil-gui';
 import { createSpiralRamp, createWaveRamp } from './geometry.js';
 
+// Eski GUI instance'larını temizle ve globalde tut
+let gui;
+if (typeof window !== 'undefined') {
+  if (window.__mainGui) {
+    window.__mainGui.destroy();
+  }
+  window.__mainGui = new GUI();
+  gui = window.__mainGui;
+} else {
+  gui = new GUI();
+}
+
 // Renderer & Scene
 const canvas   = document.getElementById('three-canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -19,7 +31,6 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
 // --- GUI ---
-const gui = new GUI();
 
 // Lights
 scene.add(new THREE.AmbientLight(0xffffff, 0.3));
@@ -49,12 +60,31 @@ dirLight.shadow.mapSize.height = 2048;
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.81, 0) });
 world.broadphase = new CANNON.NaiveBroadphase();
 
+// --- sürtünmesiz kayan ramp ve cisimler için materyal tanımları ---
+const rampMaterial   = new CANNON.Material('rampMaterial');
+const objectMaterial = new CANNON.Material('objectMaterial');
+
+// ramp <-> obje etkileşiminde friction=0, restitution=0.1
+const slipperyContact = new CANNON.ContactMaterial(
+  rampMaterial,
+  objectMaterial,
+  { friction: 0.0, restitution: 0.1 }
+);
+world.addContactMaterial(slipperyContact);
+// opsiyonel: tüm default kontaklar için de bunu kullan
+world.defaultContactMaterial = slipperyContact;
+
 // Materials & Constants
 const loader     = new THREE.TextureLoader();
 const mats       = {
   wood:   new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/wood.jpg'), metalness:0.2, roughness:0.7 }),
   metal:  new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/metal.jpg'), metalness:0.8, roughness:0.2 }),
-  rubber: new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/rubber.jpg'), metalness:0.1, roughness:0.9 })
+  rubber: new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/rubber.jpg'), metalness:0.1, roughness:0.9 }),
+  dalgalı:new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/dalgalı.jpg'), metalness:0.1, roughness:0.9}),
+  düz:new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/düz.jpg'), metalness:0.1, roughness:0.9}),
+  spiral:new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/spiral.jpg'), metalness:0.1, roughness:0.9}),
+  zemin:new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/zemin.jpg'), metalness:0.1, roughness:0.9}),
+  zemin2:new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/zemin2.jpg'), metalness:0.1, roughness:0.9})
 };
 const size       = 12;
 const wallH      = 1;
@@ -65,7 +95,7 @@ const rampDepth  = size/3;
 const rampAngle  = -Math.PI/6;
 
 // --- ÜST PLATFORM & DUVARLAR ---
-const topMesh = new THREE.Mesh(new THREE.BoxGeometry(size,0.2,size), mats.wood);
+const topMesh = new THREE.Mesh(new THREE.BoxGeometry(size,0.2,size), mats.zemin2);
 topMesh.position.set(0,2,10);
 scene.add(topMesh);
 const topBody = new CANNON.Body({ mass:0 });
@@ -79,7 +109,7 @@ world.addBody(topBody);
   { sz:[wallT,wallH,size], pos:[-size/2, 2+wallH/2, topMesh.position.z] },   // sol
   { sz:[wallT,wallH,size], pos:[ size/2, 2+wallH/2, topMesh.position.z] }    // sağ
 ].forEach(cfg=>{
-  const m = new THREE.Mesh(new THREE.BoxGeometry(...cfg.sz), mats.wood);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(...cfg.sz), mats.zemin);
   m.position.set(...cfg.pos);
   scene.add(m);
   const b = new CANNON.Body({ mass:0 });
@@ -89,7 +119,7 @@ world.addBody(topBody);
 });
 
 // --- ALT PLATFORM & DUVARLAR ---
-const botMesh = new THREE.Mesh(new THREE.BoxGeometry(size,0.2,size), mats.wood);
+const botMesh = new THREE.Mesh(new THREE.BoxGeometry(size,0.2,size), mats.zemin2);
 botMesh.position.set(0,-4,-10);
 scene.add(botMesh);
 const botBody = new CANNON.Body({ mass:0 });
@@ -102,7 +132,7 @@ world.addBody(botBody);
   { sz:[wallT,wallH,size], pos:[-size/2, botMesh.position.y+0.1+wallH/2, botMesh.position.z] },   // sol
   { sz:[wallT,wallH,size], pos:[ size/2, botMesh.position.y+0.1+wallH/2, botMesh.position.z] }    // sağ
 ].forEach(cfg=>{
-  const m=new THREE.Mesh(new THREE.BoxGeometry(...cfg.sz), mats.wood);
+  const m=new THREE.Mesh(new THREE.BoxGeometry(...cfg.sz), mats.zemin);
   m.position.set(...cfg.pos);
   scene.add(m);
   const b=new CANNON.Body({ mass:0 });
@@ -121,7 +151,7 @@ Object.values(rampLanes).forEach(x=>{
 
   const barrier = new THREE.Mesh(
     new THREE.BoxGeometry(4, wallH, wallT),
-    mats.wood
+    mats.zemin
   );
   // Rampanın yüzeyine dik olsun:
   barrier.rotation.set(rampAngle, 0, 0);
@@ -140,6 +170,67 @@ Object.values(rampLanes).forEach(x=>{
   rampBarriers.push({ mesh: barrier, body: b });
 });
 
+// --- TABELA EKLEME ---
+// Canvas ile doku oluştur
+const tableCanvas = document.createElement('canvas');
+tableCanvas.width = 1400;
+tableCanvas.height = 400;
+const ctx = tableCanvas.getContext('2d');
+ctx.fillStyle = 'rgba(255,255,255,0)';
+ctx.fillRect(0, 0, tableCanvas.width, tableCanvas.height);
+ctx.font = 'bold 120px Arial';
+ctx.fillStyle = '#eee';
+ctx.textAlign = 'center';
+ctx.textBaseline = 'top';
+ctx.shadowColor = 'rgba(0,0,0,0.4)';
+ctx.shadowBlur = 18;
+ctx.fillText('PhysicsLab3D', tableCanvas.width/2, 70);
+ctx.font = '60px Arial';
+ctx.shadowBlur = 10;
+ctx.fillText('Muhammed ve Musa', tableCanvas.width/2, 220);
+const tableTextureCanvas = new THREE.CanvasTexture(tableCanvas);
+
+// Tabela paneli (wood.jpg dokusu + canvas yazı)
+const woodTexture = loader.load('./assets/textures/zemin.jpg');
+woodTexture.wrapS = woodTexture.wrapT = THREE.RepeatWrapping;
+woodTexture.repeat.set(2, 1);
+const tableMaterial = [
+  new THREE.MeshStandardMaterial({ map: woodTexture }), // sol
+  new THREE.MeshStandardMaterial({ map: woodTexture }), // sağ
+  new THREE.MeshStandardMaterial({ map: woodTexture }), // üst
+  new THREE.MeshStandardMaterial({ map: woodTexture }), // alt
+  new THREE.MeshStandardMaterial({ map: tableTextureCanvas }), // ön (yazılı)
+  new THREE.MeshStandardMaterial({ map: woodTexture })  // arka
+];
+const tableWidth = 7.5;
+const tableHeight = 2.0;
+const tableDepth = 0.13;
+const tableGeometry = new THREE.BoxGeometry(tableWidth, tableHeight, tableDepth);
+const tableMesh = new THREE.Mesh(tableGeometry, tableMaterial);
+tableMesh.castShadow = true;
+tableMesh.receiveShadow = true;
+// Tabela üst platformun arka kenarına bitişik ve ortada olacak, direğin üstüne tam oturacak
+const poleHeight = 1.0;
+const tableY = topMesh.position.y + 0.1 + poleHeight + tableHeight/2; // platform üstü + direk + tabelanın yarısı
+const tableZ = topMesh.position.z + size/2 - (tableDepth/2);
+tableMesh.position.set(0, tableY, tableZ);
+tableMesh.rotation.y = Math.PI;
+scene.add(tableMesh);
+
+// Tabela direği (metal), platformun üstünden başlayacak ve tabelanın altına kadar uzanacak
+const poleGeometry = new THREE.CylinderGeometry(0.11, 0.11, poleHeight, 24);
+const poleMesh = new THREE.Mesh(poleGeometry, mats.metal);
+poleMesh.castShadow = true;
+poleMesh.receiveShadow = true;
+// Direğin alt ucu platformun üstünde, üst ucu tabelanın altına değecek
+const poleY = topMesh.position.y + 0.1 + poleHeight/2;
+poleMesh.position.set(0, poleY, tableZ);
+scene.add(poleMesh);
+
+// --- GÖLGE AYARLARI ---
+renderer.shadowMap.enabled = true;
+dirLight.castShadow = true;
+
 // --- DİNAMİK NESNELER & GUI ---
 const objects = [];
 const keyState = {};
@@ -156,24 +247,77 @@ const state = {
 };
 ctl.add(state,'lane', Object.keys(rampLanes)).name('Şerit');
 ctl.add(state,'rampType',['Düz','Spiral','Dalgalı']).name('Ramp Tipi');
-ctl.add(state,'objType',['Küre','Kutu','Silindir','Piramit']).name('Obje Türü');
+ctl.add(state,'objType',['Küre','Kutu','Silindir']).name('Obje Türü');
 ctl.add(state,'cameraZ',1,30).name('Kamera Z').onChange(z=>camera.position.z=z);
 ctl.open();
 
 const addF = gui.addFolder('Yeni Nesne Ekle');
-addF.add({ spawnObject     }, 'spawnObject'    ).name('Obje Ekle');
+addF.add({ spawnObject }, 'spawnObject').name('Obje Ekle');
 addF.add({ addRamp         }, 'addRamp'        ).name('Rampa Ekle');
 addF.add({ releaseBarriers }, 'releaseBarriers').name('Serbest Bırak');
 addF.open();
 
-// "Serbest Bırak": ramp bariyerlerini kaldır
-function releaseBarriers(){
-  rampBarriers.forEach(o=>{
-    scene.remove(o.mesh);
-    world.removeBody(o.body);
-  });
-  rampBarriers.length = 0;
-  state.released = true;
+// === SKOR TABLOSU HTML OVERLAY ===
+let scoreDiv = document.getElementById('scoreboard');
+if (!scoreDiv) {
+  scoreDiv = document.createElement('div');
+  scoreDiv.id = 'scoreboard';
+  scoreDiv.style.position = 'absolute';
+  scoreDiv.style.top = '20px';
+  scoreDiv.style.left = '20px';
+  scoreDiv.style.background = 'rgba(0,0,0,0.7)';
+  scoreDiv.style.color = '#fff';
+  scoreDiv.style.padding = '16px 24px';
+  scoreDiv.style.fontFamily = 'monospace';
+  scoreDiv.style.fontSize = '20px';
+  scoreDiv.style.borderRadius = '10px';
+  scoreDiv.style.zIndex = '1000';
+  scoreDiv.innerHTML = '<b>Yarış Sonuçları</b><br>Henüz yarış yok.';
+  document.body.appendChild(scoreDiv);
+}
+
+// === YARIŞ & SÜRE TAKİBİ ===
+const raceResults = [];
+let raceStarted = false;
+let finishedCount = 0;
+
+// Arka duvarı bul (alt platformun arka kenarı)
+const backWallZ = botMesh.position.z - size/2;
+const backWallMinX = botMesh.position.x - size/2;
+const backWallMaxX = botMesh.position.x + size/2;
+
+// --- NESNE LİSTESİ VE KONTROLÜ ---
+let objectCounter = 1;
+const ctrl = {
+  selected: '',
+};
+function getObjectName(obj) {
+  return obj.mesh.userData.name;
+}
+function updateObjectList() {
+  // Eski controller'ı GUI'den kaldır
+  if (window.objectController) {
+    window.objectController.destroy();
+    window.objectController = null;
+  }
+  // DOM'da kalan eski dropdown'ları da temizle (ekstra güvenlik)
+  if (typeof document !== 'undefined') {
+    document.querySelectorAll('.property-name').forEach(el => {
+      if (el.textContent.includes('Aktif Nesne')) {
+        el.parentElement.parentElement.remove();
+      }
+    });
+  }
+  const names = objects.map(getObjectName);
+  if (names.length > 0) {
+    ctrl.selected = names[names.length-1];
+    window.objectController = gui.add(ctrl, 'selected', names).name('Aktif Nesne');
+    window.objectController.setValue(ctrl.selected);
+  } else {
+    ctrl.selected = '';
+    window.objectController = gui.add(ctrl, 'selected', []).name('Aktif Nesne');
+    window.objectController.setValue('');
+  }
 }
 
 // Dinamik ramp ekleme
@@ -199,7 +343,7 @@ function addRamp(){
   const angle = Math.atan2(dy, dz);
 
   if(state.rampType==='Düz'){
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(rampWidth, rampThick, rampLength), mats.wood);
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(rampWidth, rampThick, rampLength), mats.düz);
     mesh.position.copy(center);
     mesh.rotation.set(-angle, 0, 0);
     scene.add(mesh);
@@ -210,41 +354,7 @@ function addRamp(){
     body.quaternion.copy(mesh.quaternion);
     world.addBody(body);
 
-  }
-  /*else if(state.rampType==='Kesikli'){
-    
-    const steps  = 9;
-    const totalLen = 9;
-    const segLen   = totalLen / steps;
-    mesh = new THREE.Group();
-    for(let i=0;i<steps;i++){
-      const seg = new THREE.Mesh(
-        new THREE.BoxGeometry(segLen, rampThick, rampDepth),
-        mats.wood
-      );
-      // yatayda ortalanmış, düşeyde i*ilave
-      seg.position.set(-totalLen/6 + segLen*(i), -i*(rampThick-0.15), 0);
-      mesh.add(seg);
-    }
-    mesh.rotation.set(rampAngle/24, Math.PI/2, -0.50);
-    // hizalama Düz ramp gibi
-    const frontZ2 = topMesh.position.z - size/2;
-    mesh.position.set(
-      x,
-      topMesh.position.y - rampThick/2 -2,
-      frontZ2 - rampDepth/2
-    );
-    scene.add(mesh);
-    body = new CANNON.Body({ mass:0 });
-    body.addShape(
-      new CANNON.Box(new CANNON.Vec3(totalLen/2, rampThick/2, rampDepth/2)),
-      new CANNON.Vec3(),
-      new CANNON.Quaternion().setFromEuler(rampAngle,Math.PI/2,0)
-    );
-    body.position.copy(mesh.position);
-    world.addBody(body);
-  }*/
-  
+  }  
   else if(state.rampType==='Dalgalı'){
     const waveRamp = createWaveRamp(32, rampWidth, rampLength, rampThick);
     const geometry = new THREE.BufferGeometry();
@@ -254,7 +364,7 @@ function addRamp(){
     geometry.setIndex(new THREE.BufferAttribute(waveRamp.indices, 1));
     geometry.computeBoundingBox();
     geometry.computeVertexNormals();
-    mesh = new THREE.Mesh(geometry, mats.wood);
+    mesh = new THREE.Mesh(geometry, mats.dalgalı);
     // Dalgalı rampanın üst yüzeyi platforma tam otursun
     // Dalga fonksiyonunun ilk y değerini de hesaba kat
     function waveY(z) { return Math.sin(z * 0.5) * 0.5; }
@@ -267,7 +377,7 @@ function addRamp(){
     const vertices = Array.from(geometry.attributes.position.array);
     const indices = Array.from(geometry.index.array);
     const shape = new CANNON.Trimesh(vertices, indices);
-    body = new CANNON.Body({ mass: 0 });
+    body = new CANNON.Body({ mass: 0 ,material: rampMaterial});
     body.addShape(shape);
     body.position.copy(mesh.position);
     body.quaternion.copy(mesh.quaternion);
@@ -294,7 +404,7 @@ function addRamp(){
     geometry.setIndex(new THREE.BufferAttribute(spiralRamp.indices, 1));
     geometry.computeBoundingBox();
     geometry.computeVertexNormals();
-    mesh = new THREE.Mesh(geometry, mats.wood);
+    mesh = new THREE.Mesh(geometry, mats.spiral);
     mesh.position.set(0,0,0);
     mesh.rotation.set(0, 0, 0);
     mesh.material.side = THREE.DoubleSide;
@@ -418,146 +528,132 @@ function addRamp(){
   }
 }
 
-// Obje oluşturma
-function spawnObject(){
-  const half = 0.5;
-  // Sadece üst platformda spawn
-  const pos = new THREE.Vector3(
-    0,
-    topMesh.position.y + 0.5,
-    topMesh.position.z
-  );
-  let mesh, body;
-  switch(state.objType){
-    case 'Kutu':
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mats.rubber);
-      body = new CANNON.Body({mass:1, shape: new CANNON.Box(new CANNON.Vec3(0.5,0.5,0.5))});
-      break;
-    case 'Silindir':
-      mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,1,16), mats.wood);
-      const cyl = new CANNON.Cylinder(0.5,0.5,1,16);
-      const q = new CANNON.Quaternion();
-      q.setFromAxisAngle(new CANNON.Vec3(1,0,0), Math.PI/2);
-      body = new CANNON.Body({mass:1});
-      body.addShape(cyl, new CANNON.Vec3(), q);
-      break;
-      case 'Piramit': {
-  // 1) Görsel: kare tabanlı piramit
-  const pyrGeo = new THREE.ConeGeometry(0.5, 1, 4);
-  mesh = new THREE.Mesh(pyrGeo, mats.wood);
-
-  // 2) Physics: ConvexPolyhedron kullan
-  //    - Üçgen yüzlerden oluşan gerçek bir hacim
-  //    - Geometry verilerini CannonJS formatına çeviriyoruz
-  const posAttr = pyrGeo.attributes.position.array;
-  const idxAttr = pyrGeo.index.array;
-
-  // 2a) Tüm vertexleri Vec3 listesine dönüştür
-  const verts = [];
-  for (let i = 0; i < posAttr.length; i += 3) {
-    verts.push(new CANNON.Vec3(
-      posAttr[i],
-      posAttr[i + 1],
-      posAttr[i + 2]
-    ));
-  }
-
-  // 2b) Her üçlü index grubunu bir yüz (face) olarak al
-  const faces = [];
-  for (let i = 0; i < idxAttr.length; i += 3) {
-    faces.push([
-      idxAttr[i],
-      idxAttr[i + 1],
-      idxAttr[i + 2]
-    ]);
-  }
-
-  // 2c) ConvexPolyhedron oluştur
-  const poly = new CANNON.ConvexPolyhedron({ vertices: verts, faces: faces });
-  body = new CANNON.Body({ mass: 1 });
-  body.addShape(poly);
-
-  break;
-}
-    default:
-      mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5,16,16), mats.metal);
-      body = new CANNON.Body({mass:1, shape: new CANNON.Sphere(0.5)});
-  }
-  mesh.position.copy(pos);
-  scene.add(mesh);
-  body.position.copy(pos);
-  world.addBody(body);
-  objects.push({mesh, body});
+// "Serbest Bırak": ramp bariyerlerini kaldır
+function releaseBarriers() {
+  rampBarriers.forEach(o=>{
+    scene.remove(o.mesh);
+    world.removeBody(o.body);
+  });
+  rampBarriers.length = 0;
+  state.released = true;
+  // Yarış başlatma ve zaman atama
+  const now = performance.now();
+  objects.forEach(o => {
+    o.mesh.userData.startTime = now;
+    o.mesh.userData.finishTime = null;
+    o.mesh.userData.finished = false;
+    // Renkleri sıfırla
+    if (o.mesh.geometry.type === 'SphereGeometry') o.mesh.material = mats.metal.clone();
+    if (o.mesh.geometry.type === 'BoxGeometry') o.mesh.material = mats.rubber.clone();
+    if (o.mesh.geometry.type === 'CylinderGeometry') o.mesh.material = mats.wood.clone();
+  });
+  raceResults.length = 0;
+  finishedCount = 0;
+  raceStarted = true;
+  updateScoreboard();
 }
 
-// --- TABELA EKLEME ---
-// Canvas ile doku oluştur
-const tableCanvas = document.createElement('canvas');
-tableCanvas.width = 1400;
-tableCanvas.height = 400;
-const ctx = tableCanvas.getContext('2d');
-ctx.fillStyle = 'rgba(255,255,255,0)';
-ctx.fillRect(0, 0, tableCanvas.width, tableCanvas.height);
-ctx.font = 'bold 120px Arial';
-ctx.fillStyle = '#eee';
-ctx.textAlign = 'center';
-ctx.textBaseline = 'top';
-ctx.shadowColor = 'rgba(0,0,0,0.4)';
-ctx.shadowBlur = 18;
-ctx.fillText('PhysicsLab3D', tableCanvas.width/2, 70);
-ctx.font = '60px Arial';
-ctx.shadowBlur = 10;
-ctx.fillText('Muhammed ve Musa', tableCanvas.width/2, 220);
-const tableTextureCanvas = new THREE.CanvasTexture(tableCanvas);
+// --- YARIŞ BAŞLATMA ---
+function startRace() {
+  // Tüm toplar için başlama zamanını kaydet
+  const now = performance.now();
+  objects.forEach(o => {
+    o.mesh.userData.startTime = now;
+    o.mesh.userData.finishTime = null;
+    o.mesh.userData.finished = false;
+    // Renkleri sıfırla
+    if (o.mesh.geometry.type === 'SphereGeometry') o.mesh.material = mats.metal.clone();
+    if (o.mesh.geometry.type === 'BoxGeometry') o.mesh.material = mats.rubber.clone();
+    if (o.mesh.geometry.type === 'CylinderGeometry') o.mesh.material = mats.wood.clone();
+  });
+  raceResults.length = 0;
+  finishedCount = 0;
+  raceStarted = true;
+  updateScoreboard();
+}
 
-// Tabela paneli (wood.jpg dokusu + canvas yazı)
-const woodTexture = loader.load('./assets/textures/wood.jpg');
-woodTexture.wrapS = woodTexture.wrapT = THREE.RepeatWrapping;
-woodTexture.repeat.set(2, 1);
-const tableMaterial = [
-  new THREE.MeshStandardMaterial({ map: woodTexture }), // sol
-  new THREE.MeshStandardMaterial({ map: woodTexture }), // sağ
-  new THREE.MeshStandardMaterial({ map: woodTexture }), // üst
-  new THREE.MeshStandardMaterial({ map: woodTexture }), // alt
-  new THREE.MeshStandardMaterial({ map: tableTextureCanvas }), // ön (yazılı)
-  new THREE.MeshStandardMaterial({ map: woodTexture })  // arka
-];
-const tableWidth = 7.5;
-const tableHeight = 2.0;
-const tableDepth = 0.13;
-const tableGeometry = new THREE.BoxGeometry(tableWidth, tableHeight, tableDepth);
-const tableMesh = new THREE.Mesh(tableGeometry, tableMaterial);
-tableMesh.castShadow = true;
-tableMesh.receiveShadow = true;
-// Tabela üst platformun arka kenarına bitişik ve ortada olacak, direğin üstüne tam oturacak
-const poleHeight = 1.0;
-const tableY = topMesh.position.y + 0.1 + poleHeight + tableHeight/2; // platform üstü + direk + tabelanın yarısı
-const tableZ = topMesh.position.z + size/2 - (tableDepth/2);
-tableMesh.position.set(0, tableY, tableZ);
-tableMesh.rotation.y = Math.PI;
-scene.add(tableMesh);
+// --- YARIŞI SIFIRLA ---
+function resetRace() {
+  // Tüm topları ve skorları sil
+  objects.forEach(o => {
+    scene.remove(o.mesh);
+    world.removeBody(o.body);
+  });
+  objects.length = 0;
+  raceResults.length = 0;
+  finishedCount = 0;
+  raceStarted = false;
+  updateScoreboard();
+  updateObjectList();
+}
 
-// Tabela direği (metal), platformun üstünden başlayacak ve tabelanın altına kadar uzanacak
-const poleGeometry = new THREE.CylinderGeometry(0.11, 0.11, poleHeight, 24);
-const poleMesh = new THREE.Mesh(poleGeometry, mats.metal);
-poleMesh.castShadow = true;
-poleMesh.receiveShadow = true;
-// Direğin alt ucu platformun üstünde, üst ucu tabelanın altına değecek
-const poleY = topMesh.position.y + 0.1 + poleHeight/2;
-poleMesh.position.set(0, poleY, tableZ);
-scene.add(poleMesh);
+// --- SKOR TABLOSUNU GÜNCELLE ---
+function updateScoreboard() {
+  if (!raceStarted) {
+    scoreDiv.innerHTML = '<b>Yarış Sonuçları</b><br>Henüz yarış yok.';
+    return;
+  }
+  let html = '<b>Yarış Sonuçları</b><br><table style="color:#fff;">';
+  html += '<tr><th>Top</th><th>Şerit</th><th>Süre (sn)</th></tr>';
+  // FinishTime'a göre sıralama
+  const sorted = [...raceResults].sort((a, b) => a.time - b.time);
+  sorted.forEach((r, i) => {
+    html += `<tr><td>${r.mesh.userData.name}</td><td>${r.lane}</td><td>${r.time.toFixed(2)}</td></tr>`;
+  });
+  html += '</table>';
+  if (sorted.length > 0) {
+    html += `<br><b>Kazanan Top:</b> <span style="color:lime;">${sorted[0].mesh.userData.name}</span>`;
+    if (sorted.length > 1) {
+      html += `<br><b>Sonuncu Top:</b> <span style="color:red;">${sorted[sorted.length-1].mesh.userData.name}</span>`;
+    }
+  }
+  scoreDiv.innerHTML = html;
+}
 
-// --- GÖLGE AYARLARI ---
-renderer.shadowMap.enabled = true;
-dirLight.castShadow = true;
+// --- YARIŞTA ÇARPMA KONTROLÜ ---
+function checkRaceFinish() {
+  if (!raceStarted) return;
+  objects.forEach((o, idx) => {
+    if (o.mesh.userData.finished) return;
+    // Topun alt platformun arka duvarına çarpıp çarpmadığını kontrol et
+    const z = o.body.position.z;
+    // Toleransı artır: 1 birimlik aralık
+    if (Math.abs(z - backWallZ) < 1.0) {
+      // X ekseninde duvar aralığında mı?
+      const x = o.body.position.x;
+      if (x > backWallMinX && x < backWallMaxX) {
+        o.mesh.userData.finished = true;
+        o.mesh.userData.finishTime = performance.now();
+        const time = (o.mesh.userData.finishTime - o.mesh.userData.startTime) / 1000;
+        raceResults.push({
+          lane: o.mesh.userData.lane || 'Bilinmiyor',
+          time,
+          mesh: o.mesh
+        });
+        finishedCount++;
+        // Kazanan ve sonuncu renkleri
+        if (finishedCount === 1) {
+          o.mesh.material = new THREE.MeshStandardMaterial({ color: 'lime' });
+        }
+        // Sonuncu topu yarış bitince kırmızıya boya
+        if (finishedCount === objects.length) {
+          const last = raceResults[raceResults.length-1];
+          last.mesh.material = new THREE.MeshStandardMaterial({ color: 'red' });
+        }
+        updateScoreboard();
+      }
+    }
+  });
+}
 
 // Animate loop
 function animate() {
   requestAnimationFrame(animate);
 
-  // Eğer en az bir obje varsa, klavyeyle her zaman hareket ettir:
-  if (objects.length) {
-    const body = objects[objects.length - 1].body;
+  // Eğer en az bir obje varsa, sadece seçili olanı klavyeyle hareket ettir:
+  const activeObj = getActiveObject();
+  if (activeObj) {
+    const body = activeObj.body;
     const speed = 0.1;
     if (keyState['w']) body.position.z -= speed;
     if (keyState['s']) body.position.z += speed;
@@ -583,6 +679,7 @@ function animate() {
 
   controls.update();
   renderer.render(scene, camera);
+  checkRaceFinish();
 }
 animate();
 
@@ -594,3 +691,47 @@ window.addEventListener('resize',()=>{
 });
 
 topMesh.receiveShadow = true;
+
+// --- DİNAMİK NESNE OLUŞTURMA ---
+function spawnObject(laneName = state.lane) {
+  const half = 0.5;
+  const x = rampLanes[laneName];
+  const z = topMesh.position.z;
+  const pos = new THREE.Vector3(
+    x,
+    topMesh.position.y + 0.5,
+    z
+  );
+  let mesh, body;
+  switch(state.objType){
+    case 'Kutu':
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mats.rubber);
+      body = new CANNON.Body({mass:1, material: objectMaterial,shape: new CANNON.Box(new CANNON.Vec3(0.5,0.5,0.5))});
+      break;
+    case 'Silindir':
+      mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,1,16), mats.wood);
+      const cyl = new CANNON.Cylinder(0.5,0.5,1,16);
+      const q = new CANNON.Quaternion();
+      q.setFromAxisAngle(new CANNON.Vec3(1,0,0), Math.PI/2);
+      body = new CANNON.Body({mass:1, material: objectMaterial});
+      body.addShape(cyl, new CANNON.Vec3(), q);
+      break;
+    default:
+      mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5,16,16), mats.metal);
+      body = new CANNON.Body({mass:1, material: objectMaterial ,shape: new CANNON.Sphere(0.5)});
+  }
+  mesh.position.copy(pos);
+  scene.add(mesh);
+  body.position.copy(pos);
+  world.addBody(body);
+  // Sadece nesne adı (Küre#1, Kutu#2, Silindir#3 ...)
+  const name = `${state.objType}#${objectCounter++}`;
+  mesh.userData = { startTime: null, finishTime: null, finished: false, lane: laneName, name };
+  objects.push({mesh, body});
+  updateObjectList();
+}
+
+// --- KLAVYE İLE SADECE SEÇİLİ NESNEYİ HAREKET ETTİR ---
+function getActiveObject() {
+  return objects.find(o => getObjectName(o) === ctrl.selected);
+}
