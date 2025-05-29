@@ -18,11 +18,22 @@ camera.position.set(10, 10, 20);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
+// --- GUI ---
+const gui = new GUI();
+
 // Lights
 scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 const dirLight = new THREE.DirectionalLight(0xffffff, 1);
 dirLight.position.set(5, 10, 7.5);
 scene.add(dirLight);
+
+// Light Controls
+const lightFolder = gui.addFolder('Işık Kontrolleri');
+lightFolder.add(dirLight.position, 'x', -20, 20).name('Işık X');
+lightFolder.add(dirLight.position, 'y', -20, 20).name('Işık Y');
+lightFolder.add(dirLight.position, 'z', -20, 20).name('Işık Z');
+lightFolder.add(dirLight, 'intensity', 0, 2).name('Parlaklık');
+lightFolder.open();
 
 // Physics world
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.81, 0) });
@@ -125,20 +136,22 @@ const keyState = {};
 window.addEventListener('keydown', e=>keyState[e.key.toLowerCase()]=true);
 window.addEventListener('keyup',   e=>keyState[e.key.toLowerCase()]=false);
 
-const gui   = new GUI();
 const ctl   = gui.addFolder('Kontrol Modu');
 const state = {
-  mode:     'object',
   spawn:    'Düzlem',
   lane:     'Sol Şerit',
   rampType: 'Düz',
   objType:  'Küre',
-  cameraZ:  camera.position.z
+  cameraZ:  camera.position.z,
+  released: false 
 };
-ctl.add(state,'mode',['object','camera']).name('Mod');
 ctl.add(state,'spawn',['Düzlem','Alt Düzlem']).name('Obje Spawn');
 ctl.add(state,'lane', Object.keys(rampLanes)).name('Şerit');
+<<<<<<< HEAD
 ctl.add(state,'rampType',['Düz','Spiral','Dalgalı']).name('Ramp Tipi');
+=======
+ctl.add(state,'rampType',['Düz','Spiral','Dalgalı',/*'Kesikli'*/]).name('Ramp Tipi');
+>>>>>>> 42486b5 (Birleştirilmiş)
 ctl.add(state,'objType',['Küre','Kutu','Silindir']).name('Obje Türü');
 ctl.add(state,'cameraZ',1,30).name('Kamera Z').onChange(z=>camera.position.z=z);
 ctl.open();
@@ -156,6 +169,7 @@ function releaseBarriers(){
     world.removeBody(o.body);
   });
   rampBarriers.length = 0;
+  state.released = true;
 }
 
 // Dinamik ramp ekleme
@@ -191,7 +205,46 @@ function addRamp(){
     body.position.copy(mesh.position);
     body.quaternion.copy(mesh.quaternion);
     world.addBody(body);
+<<<<<<< HEAD
   } else if(state.rampType==='Dalgalı'){
+=======
+  } 
+  /*else if(state.rampType==='Kesikli'){
+    
+    const steps  = 9;
+    const totalLen = 9;
+    const segLen   = totalLen / steps;
+    mesh = new THREE.Group();
+    for(let i=0;i<steps;i++){
+      const seg = new THREE.Mesh(
+        new THREE.BoxGeometry(segLen, rampThick, rampDepth),
+        mats.wood
+      );
+      // yatayda ortalanmış, düşeyde i*ilave
+      seg.position.set(-totalLen/6 + segLen*(i), -i*(rampThick-0.15), 0);
+      mesh.add(seg);
+    }
+    mesh.rotation.set(rampAngle/24, Math.PI/2, -0.50);
+    // hizalama Düz ramp gibi
+    const frontZ2 = topMesh.position.z - size/2;
+    mesh.position.set(
+      x,
+      topMesh.position.y - rampThick/2 -2,
+      frontZ2 - rampDepth/2
+    );
+    scene.add(mesh);
+    body = new CANNON.Body({ mass:0 });
+    body.addShape(
+      new CANNON.Box(new CANNON.Vec3(totalLen/2, rampThick/2, rampDepth/2)),
+      new CANNON.Vec3(),
+      new CANNON.Quaternion().setFromEuler(rampAngle,Math.PI/2,0)
+    );
+    body.position.copy(mesh.position);
+    world.addBody(body);
+  }*/
+  
+  else if(state.rampType==='Dalgalı'){
+>>>>>>> 42486b5 (Birleştirilmiş)
     const waveRamp = createWaveRamp(32, rampWidth, rampLength, rampThick);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(waveRamp.positions, 3));
@@ -397,23 +450,28 @@ function spawnObject(){
 // Animate loop
 function animate(){
   requestAnimationFrame(animate);
-  if(state.mode==='object' && objects.length){
+
+  // Top henüz serbest bırakılmadıysa kilitle & hareket ettir
+  if(objects.length && !state.released){
     const b=objects[objects.length-1].body, v=0.1;
     if(keyState['w']) b.position.z-=v;
     if(keyState['s']) b.position.z+=v;
     if(keyState['a']) b.position.x-=v;
     if(keyState['d']) b.position.x+=v;
     if(state.spawn==='Düzlem'){
-      b.position.y=topMesh.position.y+0.5; b.velocity.set(0,0,0);
+      b.position.y=topMesh.position.y+0.5;
     } else {
-      b.position.y=botMesh.position.y+0.5; b.velocity.set(0,0,0);
+      b.position.y=botMesh.position.y+0.5;
     }
+    b.velocity.set(0,0,0);
   }
+
   world.step(1/60);
   objects.forEach(o=>{
     o.mesh.position.copy(o.body.position);
     o.mesh.quaternion.copy(o.body.quaternion);
   });
+
   controls.update();
   renderer.render(scene,camera);
 }
