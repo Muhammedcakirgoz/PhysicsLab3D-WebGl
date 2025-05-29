@@ -35,6 +35,16 @@ lightFolder.add(dirLight.position, 'z', -20, 20).name('Işık Z');
 lightFolder.add(dirLight, 'intensity', 0, 2).name('Parlaklık');
 lightFolder.open();
 
+// Gölge kamera sınırlarını genişlet
+dirLight.shadow.camera.near = 0.1;
+dirLight.shadow.camera.far = 50;
+dirLight.shadow.camera.left = -20;
+dirLight.shadow.camera.right = 20;
+dirLight.shadow.camera.top = 20;
+dirLight.shadow.camera.bottom = -20;
+dirLight.shadow.mapSize.width = 2048;
+dirLight.shadow.mapSize.height = 2048;
+
 // Physics world
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.81, 0) });
 world.broadphase = new CANNON.NaiveBroadphase();
@@ -442,6 +452,67 @@ function spawnObject(){
   objects.push({mesh, body});
 }
 
+// --- TABELA EKLEME ---
+// Canvas ile doku oluştur
+const tableCanvas = document.createElement('canvas');
+tableCanvas.width = 1400;
+tableCanvas.height = 400;
+const ctx = tableCanvas.getContext('2d');
+ctx.fillStyle = 'rgba(255,255,255,0)';
+ctx.fillRect(0, 0, tableCanvas.width, tableCanvas.height);
+ctx.font = 'bold 120px Arial';
+ctx.fillStyle = '#eee';
+ctx.textAlign = 'center';
+ctx.textBaseline = 'top';
+ctx.shadowColor = 'rgba(0,0,0,0.4)';
+ctx.shadowBlur = 18;
+ctx.fillText('PhysicsLab3D', tableCanvas.width/2, 70);
+ctx.font = '60px Arial';
+ctx.shadowBlur = 10;
+ctx.fillText('Muhammed ve Musa', tableCanvas.width/2, 220);
+const tableTextureCanvas = new THREE.CanvasTexture(tableCanvas);
+
+// Tabela paneli (wood.jpg dokusu + canvas yazı)
+const woodTexture = loader.load('./assets/textures/wood.jpg');
+woodTexture.wrapS = woodTexture.wrapT = THREE.RepeatWrapping;
+woodTexture.repeat.set(2, 1);
+const tableMaterial = [
+  new THREE.MeshStandardMaterial({ map: woodTexture }), // sol
+  new THREE.MeshStandardMaterial({ map: woodTexture }), // sağ
+  new THREE.MeshStandardMaterial({ map: woodTexture }), // üst
+  new THREE.MeshStandardMaterial({ map: woodTexture }), // alt
+  new THREE.MeshStandardMaterial({ map: tableTextureCanvas }), // ön (yazılı)
+  new THREE.MeshStandardMaterial({ map: woodTexture })  // arka
+];
+const tableWidth = 7.5;
+const tableHeight = 2.0;
+const tableDepth = 0.13;
+const tableGeometry = new THREE.BoxGeometry(tableWidth, tableHeight, tableDepth);
+const tableMesh = new THREE.Mesh(tableGeometry, tableMaterial);
+tableMesh.castShadow = true;
+tableMesh.receiveShadow = true;
+// Tabela üst platformun arka kenarına bitişik ve ortada olacak, direğin üstüne tam oturacak
+const poleHeight = 1.0;
+const tableY = topMesh.position.y + 0.1 + poleHeight + tableHeight/2; // platform üstü + direk + tabelanın yarısı
+const tableZ = topMesh.position.z + size/2 - (tableDepth/2);
+tableMesh.position.set(0, tableY, tableZ);
+tableMesh.rotation.y = Math.PI;
+scene.add(tableMesh);
+
+// Tabela direği (metal), platformun üstünden başlayacak ve tabelanın altına kadar uzanacak
+const poleGeometry = new THREE.CylinderGeometry(0.11, 0.11, poleHeight, 24);
+const poleMesh = new THREE.Mesh(poleGeometry, mats.metal);
+poleMesh.castShadow = true;
+poleMesh.receiveShadow = true;
+// Direğin alt ucu platformun üstünde, üst ucu tabelanın altına değecek
+const poleY = topMesh.position.y + 0.1 + poleHeight/2;
+poleMesh.position.set(0, poleY, tableZ);
+scene.add(poleMesh);
+
+// --- GÖLGE AYARLARI ---
+renderer.shadowMap.enabled = true;
+dirLight.castShadow = true;
+
 // Animate loop
 function animate() {
   requestAnimationFrame(animate);
@@ -466,7 +537,7 @@ function animate() {
   // Fizik adımı
   world.step(1/60);
 
-  // Three.js mesh’leri senkronize et
+  // Three.js mesh'leri senkronize et
   objects.forEach(o => {
     o.mesh.position.copy(o.body.position);
     o.mesh.quaternion.copy(o.body.quaternion);
@@ -483,3 +554,5 @@ window.addEventListener('resize',()=>{
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth,window.innerHeight);
 });
+
+topMesh.receiveShadow = true;
