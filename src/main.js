@@ -138,20 +138,14 @@ window.addEventListener('keyup',   e=>keyState[e.key.toLowerCase()]=false);
 
 const ctl   = gui.addFolder('Kontrol Modu');
 const state = {
-  spawn:    'Düzlem',
   lane:     'Sol Şerit',
   rampType: 'Düz',
   objType:  'Küre',
   cameraZ:  camera.position.z,
   released: false 
 };
-ctl.add(state,'spawn',['Düzlem','Alt Düzlem']).name('Obje Spawn');
 ctl.add(state,'lane', Object.keys(rampLanes)).name('Şerit');
-<<<<<<< HEAD
 ctl.add(state,'rampType',['Düz','Spiral','Dalgalı']).name('Ramp Tipi');
-=======
-ctl.add(state,'rampType',['Düz','Spiral','Dalgalı',/*'Kesikli'*/]).name('Ramp Tipi');
->>>>>>> 42486b5 (Birleştirilmiş)
 ctl.add(state,'objType',['Küre','Kutu','Silindir']).name('Obje Türü');
 ctl.add(state,'cameraZ',1,30).name('Kamera Z').onChange(z=>camera.position.z=z);
 ctl.open();
@@ -205,10 +199,8 @@ function addRamp(){
     body.position.copy(mesh.position);
     body.quaternion.copy(mesh.quaternion);
     world.addBody(body);
-<<<<<<< HEAD
-  } else if(state.rampType==='Dalgalı'){
-=======
-  } 
+
+  }
   /*else if(state.rampType==='Kesikli'){
     
     const steps  = 9;
@@ -244,7 +236,6 @@ function addRamp(){
   }*/
   
   else if(state.rampType==='Dalgalı'){
->>>>>>> 42486b5 (Birleştirilmiş)
     const waveRamp = createWaveRamp(32, rampWidth, rampLength, rampThick);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(waveRamp.positions, 3));
@@ -419,61 +410,70 @@ function addRamp(){
 
 // Obje oluşturma
 function spawnObject(){
-  const half=0.5;
-  const pos = state.spawn==='Düzlem'
-    ? new THREE.Vector3(0, topMesh.position.y+half, topMesh.position.z)
-    : new THREE.Vector3(0, botMesh.position.y+half, botMesh.position.z);
-
+  const half = 0.5;
+  // Sadece üst platformda spawn
+  const pos = new THREE.Vector3(
+    0,
+    topMesh.position.y + 0.5,
+    topMesh.position.z
+  );
   let mesh, body;
   switch(state.objType){
     case 'Kutu':
-      mesh=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),mats.rubber);
-      body=new CANNON.Body({mass:1,shape:new CANNON.Box(new CANNON.Vec3(0.5,0.5,0.5))});
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mats.rubber);
+      body = new CANNON.Body({mass:1, shape: new CANNON.Box(new CANNON.Vec3(0.5,0.5,0.5))});
       break;
     case 'Silindir':
-      mesh=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,1,16),mats.wood);
-      const cyl=new CANNON.Cylinder(0.5,0.5,1,16);
-      const q=new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(0,0,1),Math.PI/2);
-      body=new CANNON.Body({mass:1}); body.addShape(cyl,new CANNON.Vec3(),q);
+      mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,1,16), mats.wood);
+      const cyl = new CANNON.Cylinder(0.5,0.5,1,16);
+      const q = new CANNON.Quaternion();
+      q.setFromAxisAngle(new CANNON.Vec3(1,0,0), Math.PI/2);
+      body = new CANNON.Body({mass:1});
+      body.addShape(cyl, new CANNON.Vec3(), q);
       break;
     default:
-      mesh=new THREE.Mesh(new THREE.SphereGeometry(0.5,16,16),mats.metal);
-      body=new CANNON.Body({mass:1,shape:new CANNON.Sphere(0.5)});
+      mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5,16,16), mats.metal);
+      body = new CANNON.Body({mass:1, shape: new CANNON.Sphere(0.5)});
   }
   mesh.position.copy(pos);
   scene.add(mesh);
   body.position.copy(pos);
   world.addBody(body);
-  objects.push({mesh,body});
+  objects.push({mesh, body});
 }
 
 // Animate loop
-function animate(){
+function animate() {
   requestAnimationFrame(animate);
 
-  // Top henüz serbest bırakılmadıysa kilitle & hareket ettir
-  if(objects.length && !state.released){
-    const b=objects[objects.length-1].body, v=0.1;
-    if(keyState['w']) b.position.z-=v;
-    if(keyState['s']) b.position.z+=v;
-    if(keyState['a']) b.position.x-=v;
-    if(keyState['d']) b.position.x+=v;
-    if(state.spawn==='Düzlem'){
-      b.position.y=topMesh.position.y+0.5;
-    } else {
-      b.position.y=botMesh.position.y+0.5;
-    }
-    b.velocity.set(0,0,0);
+  // Eğer en az bir obje varsa, klavyeyle her zaman hareket ettir:
+  if (objects.length) {
+    const body = objects[objects.length - 1].body;
+    const speed = 0.1;
+    if (keyState['w']) body.position.z -= speed;
+    if (keyState['s']) body.position.z += speed;
+    if (keyState['a']) body.position.x -= speed;
+    if (keyState['d']) body.position.x += speed;
   }
 
+  // Sadece henüz "serbest bırak" yapılmadıysa, objeyi Y ekseninde sabitle:
+  if (objects.length && !state.released) {
+    const body = objects[objects.length - 1].body;
+    body.position.y = topMesh.position.y + 0.5;
+    body.velocity.set(0, 0, 0);
+  }
+
+  // Fizik adımı
   world.step(1/60);
-  objects.forEach(o=>{
+
+  // Three.js mesh’leri senkronize et
+  objects.forEach(o => {
     o.mesh.position.copy(o.body.position);
     o.mesh.quaternion.copy(o.body.quaternion);
   });
 
   controls.update();
-  renderer.render(scene,camera);
+  renderer.render(scene, camera);
 }
 animate();
 
