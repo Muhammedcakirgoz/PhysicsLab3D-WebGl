@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as CANNON from 'cannon-es';
 import GUI from 'lil-gui';
+import { createSpiralRamp, createWaveRamp } from './geometry.js';
 
 // Renderer & Scene
 const canvas   = document.getElementById('three-canvas');
@@ -38,13 +39,13 @@ const size       = 12;
 const wallH      = 1;
 const wallT      = 0.2;
 const rampThick  = 0.3;
-const rampLen    = 4;
-const rampDepth  = 4;
+const rampLen    = 12;
+const rampDepth  = size/3;
 const rampAngle  = -Math.PI/6;
 
 // --- ÜST PLATFORM & DUVARLAR ---
 const topMesh = new THREE.Mesh(new THREE.BoxGeometry(size,0.2,size), mats.wood);
-topMesh.position.set(0,0.1,7.8);
+topMesh.position.set(0,2,10);
 scene.add(topMesh);
 const topBody = new CANNON.Body({ mass:0 });
 topBody.addShape(new CANNON.Box(new CANNON.Vec3(size/2,0.1,size/2)));
@@ -53,9 +54,9 @@ world.addBody(topBody);
 
 // Üst platform duvarları
 [
-  { sz:[size,wallH,wallT], pos:[0, wallH/2, topMesh.position.z+size/2] }, // ön
-  { sz:[wallT,wallH,size], pos:[-size/2, wallH/2, topMesh.position.z] },   // sol
-  { sz:[wallT,wallH,size], pos:[ size/2, wallH/2, topMesh.position.z] }    // sağ
+  { sz:[size,wallH,wallT], pos:[0, 2+wallH/2, topMesh.position.z+size/2] }, // ön
+  { sz:[wallT,wallH,size], pos:[-size/2, 2+wallH/2, topMesh.position.z] },   // sol
+  { sz:[wallT,wallH,size], pos:[ size/2, 2+wallH/2, topMesh.position.z] }    // sağ
 ].forEach(cfg=>{
   const m = new THREE.Mesh(new THREE.BoxGeometry(...cfg.sz), mats.wood);
   m.position.set(...cfg.pos);
@@ -68,7 +69,7 @@ world.addBody(topBody);
 
 // --- ALT PLATFORM & DUVARLAR ---
 const botMesh = new THREE.Mesh(new THREE.BoxGeometry(size,0.2,size), mats.wood);
-botMesh.position.set(0,-2.1,-7.8);
+botMesh.position.set(0,-4,-10);
 scene.add(botMesh);
 const botBody = new CANNON.Body({ mass:0 });
 botBody.addShape(new CANNON.Box(new CANNON.Vec3(size/2,0.1,size/2)));
@@ -98,7 +99,7 @@ Object.values(rampLanes).forEach(x=>{
   const y0 = topMesh.position.y + wallH/2 -0.2;
 
   const barrier = new THREE.Mesh(
-    new THREE.BoxGeometry(rampLen, wallH, wallT),
+    new THREE.BoxGeometry(4, wallH, wallT),
     mats.wood
   );
   // Rampanın yüzeyine dik olsun:
@@ -108,7 +109,7 @@ Object.values(rampLanes).forEach(x=>{
 
   const b = new CANNON.Body({ mass: 0 });
   b.addShape(
-    new CANNON.Box(new CANNON.Vec3(rampLen/2, wallH/2, wallT/2)),
+    new CANNON.Box(new CANNON.Vec3(2, wallH/2, wallT/2)),
     new CANNON.Vec3(),
     new CANNON.Quaternion().setFromEuler(rampAngle, 0, 0)
   );
@@ -137,7 +138,7 @@ const state = {
 ctl.add(state,'mode',['object','camera']).name('Mod');
 ctl.add(state,'spawn',['Düzlem','Alt Düzlem']).name('Obje Spawn');
 ctl.add(state,'lane', Object.keys(rampLanes)).name('Şerit');
-ctl.add(state,'rampType',['Düz','Kıvrımlı','Kesikli']).name('Ramp Tipi');
+ctl.add(state,'rampType',['Düz','Spiral','Dalgalı']).name('Ramp Tipi');
 ctl.add(state,'objType',['Küre','Kutu','Silindir']).name('Obje Türü');
 ctl.add(state,'cameraZ',1,30).name('Kamera Z').onChange(z=>camera.position.z=z);
 ctl.open();
@@ -148,7 +149,7 @@ addF.add({ addRamp         }, 'addRamp'        ).name('Rampa Ekle');
 addF.add({ releaseBarriers }, 'releaseBarriers').name('Serbest Bırak');
 addF.open();
 
-// “Serbest Bırak”: ramp bariyerlerini kaldır
+// "Serbest Bırak": ramp bariyerlerini kaldır
 function releaseBarriers(){
   rampBarriers.forEach(o=>{
     scene.remove(o.mesh);
@@ -161,20 +162,206 @@ function releaseBarriers(){
 function addRamp(){
   const x = rampLanes[state.lane];
   let mesh, body;
+  const rampWidth = size/3;
+  const platformThickness = 0.2;
+  const start = new THREE.Vector3(
+    x,
+    topMesh.position.y + platformThickness/2 + rampThick/2,
+    topMesh.position.z - size/2 + wallT + platformThickness/2
+  );
+  const end = new THREE.Vector3(
+    x,
+    botMesh.position.y + platformThickness/2 + rampThick/2,
+    botMesh.position.z + size/2 - wallT - platformThickness/2
+  );
+  const center = start.clone().add(end).multiplyScalar(0.5);
+  const dz = end.z - start.z;
+  const dy = end.y - start.y;
+  const rampLength = Math.sqrt(dz*dz + dy*dy);
+  const angle = Math.atan2(dy, dz);
 
   if(state.rampType==='Düz'){
-    mesh = new THREE.Mesh(new THREE.BoxGeometry(rampLen,rampThick,rampDepth), mats.wood);
-    mesh.rotation.set(rampAngle,0,0);
-    mesh.position.set(x,-1,0);
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(rampWidth, rampThick, rampLength), mats.wood);
+    mesh.position.copy(center);
+    mesh.rotation.set(-angle, 0, 0);
     scene.add(mesh);
 
     body = new CANNON.Body({ mass:0 });
-    body.addShape(new CANNON.Box(new CANNON.Vec3(rampLen/2,rampThick/2,rampDepth/2)));
+    body.addShape(new CANNON.Box(new CANNON.Vec3(rampWidth/2, rampThick/2, rampLength/2)));
     body.position.copy(mesh.position);
     body.quaternion.copy(mesh.quaternion);
     world.addBody(body);
+  } else if(state.rampType==='Dalgalı'){
+    const waveRamp = createWaveRamp(32, rampWidth, rampLength, rampThick);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(waveRamp.positions, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(waveRamp.normals, 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(waveRamp.uvs, 2));
+    geometry.setIndex(new THREE.BufferAttribute(waveRamp.indices, 1));
+    geometry.computeBoundingBox();
+    geometry.computeVertexNormals();
+    mesh = new THREE.Mesh(geometry, mats.wood);
+    // Dalgalı rampanın üst yüzeyi platforma tam otursun
+    // Dalga fonksiyonunun ilk y değerini de hesaba kat
+    function waveY(z) { return Math.sin(z * 0.5) * 0.5; }
+    mesh.position.copy(start);
+    mesh.position.y = start.y - rampThick/2 - waveY(-rampLength/2 -2);
+    mesh.rotation.set(-angle, 0, 0);
+    scene.add(mesh);
+
+    // CANNON.Trimesh ile fiziksel çarpışma
+    const vertices = Array.from(geometry.attributes.position.array);
+    const indices = Array.from(geometry.index.array);
+    const shape = new CANNON.Trimesh(vertices, indices);
+    body = new CANNON.Body({ mass: 0 });
+    body.addShape(shape);
+    body.position.copy(mesh.position);
+    body.quaternion.copy(mesh.quaternion);
+    world.addBody(body);
+  } else if(state.rampType==='Spiral'){
+    const spiralRadius = size/4;
+    const spiralTurns = 2.2;
+    const spiralWidth = rampWidth;
+    const spiralThickness = rampThick;
+    const segmentCount = 64;
+    // Spiral rampanın ilk açısı (angle0)
+    const angle0 = 0; // spiral -a ile başlıyor, t=0 için angle0=0
+    // Spiral rampanın merkezi, şerit merkezinden spiralRadius kadar ilk açının ters yönünde kaydırılır
+    const spiralCenter = new THREE.Vector3(
+      start.x - spiralRadius * Math.cos(angle0),
+      (start.y + end.y) / 2,
+      start.z - spiralRadius * Math.sin(angle0)
+    );
+    const spiralRamp = createSpiralRamp(segmentCount, spiralRadius, spiralTurns, spiralWidth, spiralThickness, start, end, spiralCenter);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(spiralRamp.positions, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(spiralRamp.normals, 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(spiralRamp.uvs, 2));
+    geometry.setIndex(new THREE.BufferAttribute(spiralRamp.indices, 1));
+    geometry.computeBoundingBox();
+    geometry.computeVertexNormals();
+    mesh = new THREE.Mesh(geometry, mats.wood);
+    mesh.position.set(0,0,0);
+    mesh.rotation.set(0, 0, 0);
+    mesh.material.side = THREE.DoubleSide;
+    mesh.renderOrder = 2;
+    scene.add(mesh);
+    // CANNON.Trimesh ile fiziksel çarpışma
+    const vertices = Array.from(geometry.attributes.position.array);
+    const indices = Array.from(geometry.index.array);
+    const shape = new CANNON.Trimesh(vertices, indices);
+    body = new CANNON.Body({ mass: 0 });
+    body.addShape(shape);
+    body.position.copy(mesh.position);
+    body.quaternion.copy(mesh.quaternion);
+    world.addBody(body);
+    // --- Spiral rampaya korkuluk ekle ---
+    const railHeight = 0.4;
+    const railThickness = 0.1;
+    const railOffset = spiralWidth/2 + railThickness/2;
+    for(let side of [-1, 1]) { // -1: sol, 1: sağ
+      const railGeom = new THREE.BufferGeometry();
+      const railVerts = [];
+      for(let i=0; i<=segmentCount; i++) {
+        const t = i/segmentCount;
+        // Spiral rampanın sonundaki düzleşen kısım da dahil
+        let px, py, pz;
+        const flattenT = 0.9;
+        if (t >= flattenT) {
+          // Düzleşen kısımda korkuluk noktası
+          // createSpiralRamp ile aynı düzleşme mantığı
+          const angleFlat = -spiralTurns * 2 * Math.PI * flattenT;
+          const yFlat = start.y + (end.y - start.y) * flattenT;
+          const flatStart = {
+            angle: angleFlat,
+            y: yFlat,
+            x: spiralCenter.x + Math.cos(angleFlat) * spiralRadius,
+            z: spiralCenter.z + Math.sin(angleFlat) * spiralRadius
+          };
+          const flatEnd = {
+            y: end.y,
+            x: start.x,
+            z: end.z
+          };
+          const tFlat = (t - flattenT) / (1 - flattenT);
+          px = flatStart.x + (flatEnd.x - flatStart.x) * tFlat + side*railOffset;
+          py = flatStart.y + (flatEnd.y - flatStart.y) * tFlat + railHeight;
+          pz = flatStart.z + (flatEnd.z - flatStart.z) * tFlat;
+        } else {
+          const angle = -spiralTurns * 2 * Math.PI * t;
+          const y = start.y + (end.y - start.y) * t;
+          const r = spiralRadius + side*railOffset;
+          px = spiralCenter.x + Math.cos(angle)*r;
+          py = y + railHeight;
+          pz = spiralCenter.z + Math.sin(angle)*r;
+        }
+        railVerts.push(px, py, pz);
+      }
+      railGeom.setAttribute('position', new THREE.Float32BufferAttribute(railVerts, 3));
+      const railMat = mats.wood.clone();
+      const railMesh = new THREE.Line(railGeom, railMat);
+      railMesh.position.set(0,0,0);
+      scene.add(railMesh);
+      // Fiziksel çarpışma için segment segment küçük kutular ekle
+      for(let i=0; i<segmentCount; i++) {
+        // createSpiralRamp ile aynı düzleşme mantığı
+        let pt1, pt2;
+        const t1 = i/segmentCount, t2 = (i+1)/segmentCount;
+        const flattenT = 0.9;
+        if (t1 >= flattenT) {
+          const angleFlat = -spiralTurns * 2 * Math.PI * flattenT;
+          const yFlat = start.y + (end.y - start.y) * flattenT;
+          const flatStart = {
+            angle: angleFlat,
+            y: yFlat,
+            x: spiralCenter.x + Math.cos(angleFlat) * spiralRadius,
+            z: spiralCenter.z + Math.sin(angleFlat) * spiralRadius
+          };
+          const flatEnd = {
+            y: end.y,
+            x: start.x,
+            z: end.z
+          };
+          const tFlat1 = (t1 - flattenT) / (1 - flattenT);
+          const tFlat2 = (t2 - flattenT) / (1 - flattenT);
+          pt1 = new THREE.Vector3(
+            flatStart.x + (flatEnd.x - flatStart.x) * tFlat1 + side*railOffset,
+            flatStart.y + (flatEnd.y - flatStart.y) * tFlat1 + railHeight,
+            flatStart.z + (flatEnd.z - flatStart.z) * tFlat1
+          );
+          pt2 = new THREE.Vector3(
+            flatStart.x + (flatEnd.x - flatStart.x) * tFlat2 + side*railOffset,
+            flatStart.y + (flatEnd.y - flatStart.y) * tFlat2 + railHeight,
+            flatStart.z + (flatEnd.z - flatStart.z) * tFlat2
+          );
+        } else {
+          const angle1 = -spiralTurns * 2 * Math.PI * t1;
+          const angle2 = -spiralTurns * 2 * Math.PI * t2;
+          const y1 = start.y + (end.y - start.y) * t1;
+          const y2 = start.y + (end.y - start.y) * t2;
+          const r = spiralRadius + side*railOffset;
+          pt1 = new THREE.Vector3(
+            spiralCenter.x + Math.cos(angle1)*r, y1 + railHeight, spiralCenter.z + Math.sin(angle1)*r
+          );
+          pt2 = new THREE.Vector3(
+            spiralCenter.x + Math.cos(angle2)*r, y2 + railHeight, spiralCenter.z + Math.sin(angle2)*r
+          );
+        }
+        const mid = pt1.clone().add(pt2).multiplyScalar(0.5);
+        const dir = pt2.clone().sub(pt1);
+        const len = dir.length();
+        dir.normalize();
+        const boxShape = new CANNON.Box(new CANNON.Vec3(railThickness/2, railThickness/2, len/2));
+        const angleBox = Math.atan2(dir.x, dir.z);
+        const q = new CANNON.Quaternion();
+        q.setFromEuler(0, angleBox, 0);
+        const railBody = new CANNON.Body({ mass: 0 });
+        railBody.addShape(boxShape, new CANNON.Vec3(mid.x, mid.y, mid.z), q);
+        railBody.position.set(0,0,0);
+        world.addBody(railBody);
+      }
+    }
   }
-  // Kıvrımlı ve Kesikli dallarını istediğin gibi ekleyebilirsin
 }
 
 // Obje oluşturma
