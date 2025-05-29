@@ -222,9 +222,7 @@ export function createWaveRamp(segmentCount = 32, width = 1.2, length = 10, thic
     uvs: new Float32Array(uvs)
   };
 }
-<<<<<<< HEAD
 
-=======
->>>>>>> 42486b5 (Birleştirilmiş)
+
 
 
