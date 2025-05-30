@@ -92,28 +92,33 @@ const mats       = {
   zemin:new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/zemin.jpg'), metalness:0.1, roughness:0.9}),
   zemin2:new THREE.MeshStandardMaterial({ map: loader.load('./assets/textures/zemin2.jpg'), metalness:0.1, roughness:0.9})
 };
-const size       = 12;
+const platformWidth = 40; // X ekseni (yana)
+const platformDepth = 12; // Z ekseni (boyuna)
 const wallH      = 1;
 const wallT      = 0.2;
 const rampThick  = 0.3;
 const rampLen    = 12;
-const rampDepth  = size/3;
+const rampDepth  = platformDepth/3;
 const rampAngle  = -Math.PI/6;
 
+// --- ŞERİT X KONUM DEĞERLERİ ---
+const rampLanes = { 'Sol Şerit': -16, 'Orta Şerit': 0, 'Sağ Şerit': 16 };
+const rampBarriers = [];
+
 // --- ÜST PLATFORM & DUVARLAR ---
-const topMesh = new THREE.Mesh(new THREE.BoxGeometry(size,0.2,size), mats.zemin2);
-topMesh.position.set(0,2,10);
+const topMesh = new THREE.Mesh(new THREE.BoxGeometry(platformWidth,0.2,platformDepth), mats.zemin2);
+topMesh.position.set(0,2,11);
 scene.add(topMesh);
 const topBody = new CANNON.Body({ mass:0 });
-topBody.addShape(new CANNON.Box(new CANNON.Vec3(size/2,0.1,size/2)));
+topBody.addShape(new CANNON.Box(new CANNON.Vec3(platformWidth/2,0.1,platformDepth/2)));
 topBody.position.copy(topMesh.position);
 world.addBody(topBody);
 
 // Üst platform duvarları
 [
-  { sz:[size,wallH,wallT], pos:[0, 2+wallH/2, topMesh.position.z+size/2] }, // ön
-  { sz:[wallT,wallH,size], pos:[-size/2, 2+wallH/2, topMesh.position.z] },   // sol
-  { sz:[wallT,wallH,size], pos:[ size/2, 2+wallH/2, topMesh.position.z] }    // sağ
+  { sz:[platformWidth,wallH,wallT], pos:[0, 2+wallH/2, topMesh.position.z+platformDepth/2] }, // ön
+  { sz:[wallT,wallH,platformDepth], pos:[-platformWidth/2, 2+wallH/2, topMesh.position.z] },   // sol
+  { sz:[wallT,wallH,platformDepth], pos:[ platformWidth/2, 2+wallH/2, topMesh.position.z] }    // sağ
 ].forEach(cfg=>{
   const m = new THREE.Mesh(new THREE.BoxGeometry(...cfg.sz), mats.zemin);
   m.position.set(...cfg.pos);
@@ -124,19 +129,61 @@ world.addBody(topBody);
   world.addBody(b);
 });
 
+// --- ŞERİTLER ARASI BOŞLUKLARA DUVAR EKLEME FONKSİYONU ---
+function addLaneGapWalls(y, z) {
+  const rampXs = Object.values(rampLanes).sort((a,b)=>a-b);
+  const rampWidth = 4;
+  let lastX = -platformWidth/2;
+  for (let i = 0; i < rampXs.length; i++) {
+    const rampLeft = rampXs[i] - rampWidth/2;
+    if (rampLeft > lastX) {
+      const wallCenter = (lastX + rampLeft) / 2;
+      const wallLen = rampLeft - lastX;
+      if (wallLen > 0.1) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(wallLen, wallH, wallT), mats.zemin);
+        m.position.set(wallCenter, y, z);
+        scene.add(m);
+        const b = new CANNON.Body({ mass:0 });
+        b.addShape(new CANNON.Box(new CANNON.Vec3(wallLen/2, wallH/2, wallT/2)));
+        b.position.set(wallCenter, y, z);
+        world.addBody(b);
+      }
+    }
+    lastX = rampXs[i] + rampWidth/2;
+  }
+  if (lastX < platformWidth/2) {
+    const wallCenter = (lastX + platformWidth/2) / 2;
+    const wallLen = platformWidth/2 - lastX;
+    if (wallLen > 0.1) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(wallLen, wallH, wallT), mats.zemin);
+      m.position.set(wallCenter, y, z);
+      scene.add(m);
+      const b = new CANNON.Body({ mass:0 });
+      b.addShape(new CANNON.Box(new CANNON.Vec3(wallLen/2, wallH/2, wallT/2)));
+      b.position.set(wallCenter, y, z);
+      world.addBody(b);
+    }
+  }
+}
+
+// --- ÜST PLATFORM ÖN KENAR ŞERİTLER ARASI BOŞLUKLARA DUVAR EKLE ---
+addLaneGapWalls(topMesh.position.y + wallH/2 + 0.1, topMesh.position.z + platformDepth/2);
+// --- ÜST PLATFORM ARKA KENAR ŞERİTLER ARASI BOŞLUKLARA DUVAR EKLE ---
+addLaneGapWalls(topMesh.position.y + wallH/2 + 0.1, topMesh.position.z - platformDepth/2);
+
 // --- ALT PLATFORM & DUVARLAR ---
-const botMesh = new THREE.Mesh(new THREE.BoxGeometry(size,0.2,size), mats.zemin2);
-botMesh.position.set(0,-4,-10);
+const botMesh = new THREE.Mesh(new THREE.BoxGeometry(platformWidth,0.2,platformDepth), mats.zemin2);
+botMesh.position.set(0,-4,-11);
 scene.add(botMesh);
 const botBody = new CANNON.Body({ mass:0, material: lowFrictionMaterial });
-botBody.addShape(new CANNON.Box(new CANNON.Vec3(size/2,0.1,size/2)));
+botBody.addShape(new CANNON.Box(new CANNON.Vec3(platformWidth/2,0.1,platformDepth/2)));
 botBody.position.copy(botMesh.position);
 world.addBody(botBody);
 
 [
-  { sz:[size,wallH,wallT], pos:[0, botMesh.position.y+0.1+wallH/2, botMesh.position.z-size/2] }, // arka
-  { sz:[wallT,wallH,size], pos:[-size/2, botMesh.position.y+0.1+wallH/2, botMesh.position.z] },   // sol
-  { sz:[wallT,wallH,size], pos:[ size/2, botMesh.position.y+0.1+wallH/2, botMesh.position.z] }    // sağ
+  { sz:[platformWidth,wallH,wallT], pos:[0, botMesh.position.y+0.1+wallH/2, botMesh.position.z-platformDepth/2] }, // arka
+  { sz:[wallT,wallH,platformDepth], pos:[-platformWidth/2, botMesh.position.y+0.1+wallH/2, botMesh.position.z] },   // sol
+  { sz:[wallT,wallH,platformDepth], pos:[ platformWidth/2, botMesh.position.y+0.1+wallH/2, botMesh.position.z] }    // sağ
 ].forEach(cfg=>{
   const m=new THREE.Mesh(new THREE.BoxGeometry(...cfg.sz), mats.zemin);
   m.position.set(...cfg.pos);
@@ -147,12 +194,14 @@ world.addBody(botBody);
   world.addBody(b);
 });
 
-// --- RAMP BARRIERS (SAHNE AÇILINCA OLUŞSUN) ---
-const rampLanes   = { 'Sol Şerit': -4, 'Orta Şerit': 0, 'Sağ Şerit': 4 };
-const rampBarriers = [];
+// --- ALT PLATFORM ÖN KENAR ŞERİTLER ARASI BOŞLUKLARA DUVAR EKLE ---
+addLaneGapWalls(botMesh.position.y + wallH/2 + 0.1, botMesh.position.z + platformDepth/2);
+// --- ALT PLATFORM ARKA KENAR ŞERİTLER ARASI BOŞLUKLARA DUVAR EKLE ---
+addLaneGapWalls(botMesh.position.y + wallH/2 + 0.1, botMesh.position.z - platformDepth/2);
 
+// --- RAMP BARRIERS (SAHNE AÇILINCA OLUŞSUN) ---
 Object.values(rampLanes).forEach(x=>{
-  const z0 = topMesh.position.z - size/1.8 - wallT/2;
+  const z0 = topMesh.position.z - platformDepth/1.8 - wallT/2;
   const y0 = topMesh.position.y + wallH/2 -0.2;
 
   const barrier = new THREE.Mesh(
@@ -164,7 +213,7 @@ Object.values(rampLanes).forEach(x=>{
   barrier.position.set(x, y0, z0);
   scene.add(barrier);
 
-  const b = new CANNON.Body({ mass: 0 });
+  const b = new CANNON.Body({ mass: 0, material: lowFrictionMaterial });
   b.addShape(
     new CANNON.Box(new CANNON.Vec3(2, wallH/2, wallT/2)),
     new CANNON.Vec3(),
@@ -197,7 +246,7 @@ ctx.fillText('Muhammed ve Musa', tableCanvas.width/2, 220);
 const tableTextureCanvas = new THREE.CanvasTexture(tableCanvas);
 
 // Tabela paneli (wood.jpg dokusu + canvas yazı)
-const woodTexture = loader.load('./assets/textures/zemin.jpg');
+const woodTexture = loader.load('./assets/textures/rubber.jpg');
 woodTexture.wrapS = woodTexture.wrapT = THREE.RepeatWrapping;
 woodTexture.repeat.set(2, 1);
 const tableMaterial = [
@@ -218,7 +267,7 @@ tableMesh.receiveShadow = true;
 // Tabela üst platformun arka kenarına bitişik ve ortada olacak, direğin üstüne tam oturacak
 const poleHeight = 1.0;
 const tableY = topMesh.position.y + 0.1 + poleHeight + tableHeight/2; // platform üstü + direk + tabelanın yarısı
-const tableZ = topMesh.position.z + size/2 - (tableDepth/2);
+const tableZ = topMesh.position.z + platformDepth/2 - (tableDepth/2);
 tableMesh.position.set(0, tableY, tableZ);
 tableMesh.rotation.y = Math.PI;
 scene.add(tableMesh);
@@ -292,9 +341,9 @@ let raceStarted = false;
 let finishedCount = 0;
 
 // Arka duvarı bul (alt platformun arka kenarı)
-const backWallZ = botMesh.position.z - size/2;
-const backWallMinX = botMesh.position.x - size/2;
-const backWallMaxX = botMesh.position.x + size/2;
+const backWallZ = botMesh.position.z - platformDepth/2;
+const backWallMinX = botMesh.position.x - platformWidth/2;
+const backWallMaxX = botMesh.position.x + platformWidth/2;
 
 // --- NESNE LİSTESİ VE KONTROLÜ ---
 let objectCounter = 1;
@@ -334,17 +383,17 @@ function updateObjectList() {
 function addRamp(){
   const x = rampLanes[state.lane];
   let mesh, body;
-  const rampWidth = size/3;
+  const rampWidth = 4; // Sabit genişlik
   const platformThickness = 0.2;
   const start = new THREE.Vector3(
     x,
     topMesh.position.y + 0.1 + rampThick/2 - 0.1,
-    topMesh.position.z - size/2 + wallT + platformThickness/2
+    topMesh.position.z - platformDepth/2 + wallT + platformThickness/2
   );
   const end = new THREE.Vector3(
     x,
     botMesh.position.y + platformThickness/2 + rampThick/2,
-    botMesh.position.z + size/2 - wallT - platformThickness/2
+    botMesh.position.z + platformDepth/2 - wallT - platformThickness/2
   );
   const center = start.clone().add(end).multiplyScalar(0.5);
   const dz = end.z - start.z;
@@ -388,16 +437,16 @@ function addRamp(){
     const vertices = Array.from(geometry.attributes.position.array);
     const indices = Array.from(geometry.index.array);
     const shape = new CANNON.Trimesh(vertices, indices);
-    body = new CANNON.Body({ mass: 0 ,material: rampMaterial});
+    body = new CANNON.Body({ mass: 0, material: lowFrictionMaterial });
     body.addShape(shape);
     body.position.copy(mesh.position);
     body.quaternion.copy(mesh.quaternion);
     world.addBody(body);
 
   } else if(state.rampType==='Spiral'){
-    const spiralRadius = size/4;
+    const spiralWidth = 3; // Daha küçük genişlik
+    const spiralRadius = 5; // Daha küçük yarıçap
     const spiralTurns = 2.2;
-    const spiralWidth = rampWidth;
     const spiralThickness = rampThick;
     const segmentCount = 64;
     // Spiral rampanın ilk açısı (angle0)
@@ -426,7 +475,7 @@ function addRamp(){
     const vertices = Array.from(geometry.attributes.position.array);
     const indices = Array.from(geometry.index.array);
     const shape = new CANNON.Trimesh(vertices, indices);
-    body = new CANNON.Body({ mass: 0 });
+    body = new CANNON.Body({ mass: 0, material: lowFrictionMaterial });
     body.addShape(shape);
     body.position.copy(mesh.position);
     body.quaternion.copy(mesh.quaternion);
@@ -786,7 +835,7 @@ topMesh.receiveShadow = true;
 // --- DİNAMİK NESNE OLUŞTURMA ---
 function spawnObject(laneName = state.lane) {
   const half = 0.5;
-  const x = rampLanes[laneName];
+  const x = 0; // Her zaman sahnenin ortası
   const z = topMesh.position.z;
   const pos = new THREE.Vector3(
     x,
