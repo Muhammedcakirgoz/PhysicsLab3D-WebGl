@@ -422,6 +422,55 @@ function addRamp(){
     body.quaternion.copy(mesh.quaternion);
     world.addBody(body);
 
+    // --- DÜZ RAMPA KORKULUKLARI (YOLUN TAM ÜSTÜNDE, YUKARIDA) ---
+    const railHeight = 0.7;
+    const railThickness = 0.1;
+    const railOffset = rampWidth/2 + railThickness/2;
+    const segmentCount = 32;
+    for(let side of [-1, 1]) { // -1: sol, 1: sağ
+      const railVerts = [];
+      for(let i=0; i<=segmentCount; i++) {
+        const t = i/segmentCount;
+        // Rampanın üst yüzeyinin kenar noktası (başlangıcı biraz geri alındı)
+        const z = -rampLength/2 + 1 + (rampLength-2)*t;
+        const y = rampThick/2 + railThickness/2; // üst yüzeyin hemen üstü
+        const xLocal = side * (rampWidth/2 + railThickness/2);
+        // Rampanın merkezine ve rotasyonuna göre global pozisyon
+        const local = new THREE.Vector3(xLocal, y, z);
+        const m = new THREE.Matrix4().makeRotationX(-angle).setPosition(center);
+        local.applyMatrix4(m);
+        // Rampanın normali (düz rampada sabit):
+        const normal = new THREE.Vector3(0, Math.cos(angle), Math.sin(angle)).normalize();
+        // Korkuluğu yukarı kaydır
+        local.addScaledVector(normal, -1.5);
+        railVerts.push(local);
+      }
+      for(let i=0; i<segmentCount; i++) {
+        const p1 = railVerts[i];
+        const p2 = railVerts[i+1];
+        const mid = p1.clone().add(p2).multiplyScalar(0.5);
+        const dir = p2.clone().sub(p1);
+        const len = dir.length();
+        dir.normalize();
+        // Görsel: kısa silindir (siyah)
+        const railGeom = new THREE.CylinderGeometry(railThickness/2, railThickness/2, len, 8);
+        const railMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const railMesh = new THREE.Mesh(railGeom, railMat);
+        // Silindiri doğru yöne döndür
+        railMesh.position.copy(mid);
+        railMesh.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0,1,0),
+          dir.clone().normalize()
+        );
+        scene.add(railMesh);
+        // Fiziksel çarpışma
+        const railBody = new CANNON.Body({ mass: 0 });
+        railBody.addShape(new CANNON.Cylinder(railThickness/2, railThickness/2, len, 8));
+        railBody.position.copy(mid);
+        railBody.quaternion.copy(railMesh.quaternion);
+        world.addBody(railBody);
+      }
+    }
   }  
   else if(state.rampType==='Dalgalı'){
     const waveRamp = createWaveRamp(32, rampWidth, rampLength, rampThick);
@@ -451,6 +500,63 @@ function addRamp(){
     body.quaternion.copy(mesh.quaternion);
     world.addBody(body);
 
+    // --- DALGALI RAMPA KORKULUKLARI (YOLUN TAM ÜSTÜNDE, YUKARIDA) ---
+    const railHeight2 = 0.7;
+    const railThickness2 = 0.1;
+    const railOffset2 = rampWidth/2 + railThickness2/2;
+    const segmentCount2 = 32;
+    for(let side of [-1, 1]) { // -1: sol, 1: sağ
+      const railVerts = [];
+      for(let i=0; i<=segmentCount2; i++) {
+        const t = i/segmentCount2;
+        const z = -rampLength/2 + rampLength*t;
+        const yWave = waveY(z);
+        const y = rampThick/2 + railThickness2/2 + yWave; // üst yüzeyin hemen üstü
+        const xLocal = side * (rampWidth/2 + railThickness2/2);
+        // Dalgalı rampada her segmentte rampanın üst kenarını ve dalga yüksekliğini kullan
+        const local = new THREE.Vector3(xLocal, y, z);
+        // Rampanın merkezine ve rotasyonuna göre global pozisyon
+        const m = new THREE.Matrix4().makeRotationX(-angle).setPosition(center);
+        local.applyMatrix4(m);
+        // Rampanın normali (dalgalı rampada yaklaşık):
+        // Normal yaklaşık olarak (0,1, dalga eğimi) ve rampanın eğimiyle döndürülmüş
+        const dz = 0.01;
+        const y1 = waveY(z-dz);
+        const y2 = waveY(z+dz);
+        const slope = (y2-y1)/(2*dz);
+        const normal = new THREE.Vector3(0, 1, -slope).normalize();
+        // Rampanın genel eğimiyle de döndür
+        normal.applyAxisAngle(new THREE.Vector3(1,0,0), -angle);
+        // Korkuluğu yukarı kaydır
+        local.addScaledVector(normal, -0.5);
+        railVerts.push(local);
+      }
+      for(let i=0; i<segmentCount2; i++) {
+        const p1 = railVerts[i];
+        const p2 = railVerts[i+1];
+        const mid = p1.clone().add(p2).multiplyScalar(0.5);
+        const dir = p2.clone().sub(p1);
+        const len = dir.length();
+        dir.normalize();
+        // Görsel: kısa silindir (siyah)
+        const railGeom = new THREE.CylinderGeometry(railThickness2/2, railThickness2/2, len, 8);
+        const railMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const railMesh = new THREE.Mesh(railGeom, railMat);
+        // Silindiri doğru yöne döndür
+        railMesh.position.copy(mid);
+        railMesh.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0,1,0),
+          dir.clone().normalize()
+        );
+        scene.add(railMesh);
+        // Fiziksel çarpışma
+        const railBody = new CANNON.Body({ mass: 0 });
+        railBody.addShape(new CANNON.Cylinder(railThickness2/2, railThickness2/2, len, 8));
+        railBody.position.copy(mid);
+        railBody.quaternion.copy(railMesh.quaternion);
+        world.addBody(railBody);
+      }
+    }
   } else if(state.rampType==='Spiral'){
     const spiralWidth = 3; // Daha küçük genişlik
     const spiralRadius = 5; // Daha küçük yarıçap
@@ -490,7 +596,7 @@ function addRamp(){
     world.addBody(body);
 
     // --- Spiral rampaya korkuluk ekle ---
-    const railHeight = 0.4;
+    const railHeight = 0.7;
     const railThickness = 0.1;
     const railOffset = spiralWidth/2 + railThickness/2;
     for(let side of [-1, 1]) { // -1: sol, 1: sağ
@@ -605,7 +711,7 @@ function releaseBarriers() {
     world.removeBody(o.body);
   });
   rampBarriers.length = 0;
-  state.released = true;
+  state.released = true; // Serbest bırakıldıktan sonra obje kontrolünü tekrar aktif et
   // Yarış başlatma ve zaman atama
   const now = performance.now();
   objects.forEach(o => {
@@ -628,6 +734,26 @@ function releaseBarriers() {
     if (o.mesh.geometry.type === 'SphereGeometry') o.mesh.material = mats.metal.clone();
     if (o.mesh.geometry.type === 'BoxGeometry') o.mesh.material = mats.rubber.clone();
     if (o.mesh.geometry.type === 'CylinderGeometry') o.mesh.material = mats.wood.clone();
+    // Objenin hızını ve torkunu sıfırla
+    o.body.velocity.set(0, 0, 0);
+    o.body.angularVelocity.set(0, 0, 0);
+    o.body.torque.set(0, 0, 0);
+    o.body.force.set(0, 0, 0);
+    // Objenin pozisyonunu sabitle
+    // o.body.position.y = topMesh.position.y + 0.5;
+    // Kutunun yuvarlanmasını sağla
+    if (o.mesh.geometry.type === 'BoxGeometry') {
+      o.body.angularVelocity.set(0, 0, 0);
+      o.body.torque.set(0, 0, 0);
+      // Kutuya ileri doğru başlangıç hızı ver
+      o.body.velocity.set(0, 0, -2); // Z ekseninde ileri (negatif z)
+    }
+    // Silindirin de harekete geçmesini sağla
+    if (o.mesh.geometry.type === 'CylinderGeometry') {
+      o.body.angularVelocity.set(0, 0, 0);
+      o.body.torque.set(0, 0, 0);
+      o.body.velocity.set(0, 0, -1.5); // Silindire biraz daha az hız ver
+    }
   });
   raceResults.length = 0;
   finishedCount = 0;
@@ -745,67 +871,69 @@ function checkRaceFinish() {
 function animate() {
   requestAnimationFrame(animate);
 
-  // Eğer en az bir obje varsa, sadece seçili olanı klavyeyle hareket ettir:
-  const activeObj = getActiveObject();
-  if (activeObj) {
-    const body = activeObj.body;
-    const speed = 0.1;
-    // Eğer obje bir küre ise, tork uygula (dönme için)
-    if (activeObj.mesh.geometry.type === 'SphereGeometry') {
-      let torque = new CANNON.Vec3(0, 0, 0);
-      const torqueMag = 125; // Tork büyüklüğü artırıldı
-      if (keyState['w']) torque.x -= torqueMag;
-      if (keyState['s']) torque.x += torqueMag;
-      if (keyState['a']) torque.z += torqueMag;
-      if (keyState['d']) torque.z -= torqueMag;
-      // Uykuya geçmesini engelle
-      body.sleepSpeedLimit = 0;
-      body.sleepTimeLimit = 0;
-      body.wakeUp();
-      // Yalnızca bir tuşa basılıysa tork uygula
-      if (torque.x !== 0 || torque.z !== 0) {
-        body.torque.x += torque.x;
-        body.torque.y += torque.y;
-        body.torque.z += torque.z;
+  // Eğer en az bir obje varsa ve serbest bırakılmadıysa, sadece seçili olanı klavyeyle hareket ettir:
+  if (!state.released) {
+    const activeObj = getActiveObject();
+    if (activeObj) {
+      const body = activeObj.body;
+      const speed = 0.1;
+      // Eğer obje bir küre ise, tork uygula (dönme için)
+      if (activeObj.mesh.geometry.type === 'SphereGeometry') {
+        let torque = new CANNON.Vec3(0, 0, 0);
+        const torqueMag = 125; // Tork büyüklüğü artırıldı
+        if (keyState['w']) torque.x -= torqueMag;
+        if (keyState['s']) torque.x += torqueMag;
+        if (keyState['a']) torque.z += torqueMag;
+        if (keyState['d']) torque.z -= torqueMag;
+        // Uykuya geçmesini engelle
+        body.sleepSpeedLimit = 0;
+        body.sleepTimeLimit = 0;
+        body.wakeUp();
+        // Yalnızca bir tuşa basılıysa tork uygula
+        if (torque.x !== 0 || torque.z !== 0) {
+          body.torque.x += torque.x;
+          body.torque.y += torque.y;
+          body.torque.z += torque.z;
+        }
+      } else if (activeObj.mesh.geometry.type === 'BoxGeometry') {
+        // Kutuya tork uygula (yuvarlanma için)
+        let torque = new CANNON.Vec3(0, 0, 0);
+        const torqueMag = 100;
+        if (keyState['w']) torque.x -= torqueMag;
+        if (keyState['s']) torque.x += torqueMag;
+        if (keyState['a']) torque.z += torqueMag;
+        if (keyState['d']) torque.z -= torqueMag;
+        body.sleepSpeedLimit = 0;
+        body.sleepTimeLimit = 0;
+        body.wakeUp();
+        if (torque.x !== 0 || torque.z !== 0) {
+          body.torque.x += torque.x;
+          body.torque.y += torque.y;
+          body.torque.z += torque.z;
+        }
+      } else if (activeObj.mesh.geometry.type === 'CylinderGeometry') {
+        // Silindire tork uygula (yuvarlanma için)
+        let torque = new CANNON.Vec3(0, 0, 0);
+        const torqueMag = 100;
+        if (keyState['w']) torque.x -= torqueMag;
+        if (keyState['s']) torque.x += torqueMag;
+        if (keyState['a']) torque.z += torqueMag;
+        if (keyState['d']) torque.z -= torqueMag;
+        body.sleepSpeedLimit = 0;
+        body.sleepTimeLimit = 0;
+        body.wakeUp();
+        if (torque.x !== 0 || torque.z !== 0) {
+          body.torque.x += torque.x;
+          body.torque.y += torque.y;
+          body.torque.z += torque.z;
+        }
+      } else {
+        // Diğer nesneler için eski öteleme
+        if (keyState['w']) body.position.z -= speed;
+        if (keyState['s']) body.position.z += speed;
+        if (keyState['a']) body.position.x -= speed;
+        if (keyState['d']) body.position.x += speed;
       }
-    } else if (activeObj.mesh.geometry.type === 'BoxGeometry') {
-      // Kutuya tork uygula (yuvarlanma için)
-      let torque = new CANNON.Vec3(0, 0, 0);
-      const torqueMag = 100;
-      if (keyState['w']) torque.x -= torqueMag;
-      if (keyState['s']) torque.x += torqueMag;
-      if (keyState['a']) torque.z += torqueMag;
-      if (keyState['d']) torque.z -= torqueMag;
-      body.sleepSpeedLimit = 0;
-      body.sleepTimeLimit = 0;
-      body.wakeUp();
-      if (torque.x !== 0 || torque.z !== 0) {
-        body.torque.x += torque.x;
-        body.torque.y += torque.y;
-        body.torque.z += torque.z;
-      }
-    } else if (activeObj.mesh.geometry.type === 'CylinderGeometry') {
-      // Silindire tork uygula (yuvarlanma için)
-      let torque = new CANNON.Vec3(0, 0, 0);
-      const torqueMag = 100;
-      if (keyState['w']) torque.x -= torqueMag;
-      if (keyState['s']) torque.x += torqueMag;
-      if (keyState['a']) torque.z += torqueMag;
-      if (keyState['d']) torque.z -= torqueMag;
-      body.sleepSpeedLimit = 0;
-      body.sleepTimeLimit = 0;
-      body.wakeUp();
-      if (torque.x !== 0 || torque.z !== 0) {
-        body.torque.x += torque.x;
-        body.torque.y += torque.y;
-        body.torque.z += torque.z;
-      }
-    } else {
-      // Diğer nesneler için eski öteleme
-      if (keyState['w']) body.position.z -= speed;
-      if (keyState['s']) body.position.z += speed;
-      if (keyState['a']) body.position.x -= speed;
-      if (keyState['d']) body.position.x += speed;
     }
   }
 
