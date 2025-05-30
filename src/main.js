@@ -248,12 +248,16 @@ const state = {
   lane:     'Sol Şerit',
   rampType: 'Düz',
   objType:  'Küre',
+  cameraX:  camera.position.x,
+  cameraY:  camera.position.y,
   cameraZ:  camera.position.z,
   released: false 
 };
 ctl.add(state,'lane', Object.keys(rampLanes)).name('Şerit');
 ctl.add(state,'rampType',['Düz','Spiral','Dalgalı']).name('Ramp Tipi');
 ctl.add(state,'objType',['Küre','Kutu','Silindir']).name('Obje Türü');
+ctl.add(state,'cameraX',-30,30).name('Kamera X').onChange(x=>camera.position.x=x);
+ctl.add(state,'cameraY',-30,30).name('Kamera Y').onChange(y=>camera.position.y=y);
 ctl.add(state,'cameraZ',1,30).name('Kamera Z').onChange(z=>camera.position.z=z);
 ctl.open();
 
@@ -334,7 +338,7 @@ function addRamp(){
   const platformThickness = 0.2;
   const start = new THREE.Vector3(
     x,
-    topMesh.position.y + rampThick/2,
+    topMesh.position.y + 0.1 + rampThick/2 - 0.1,
     topMesh.position.z - size/2 + wallT + platformThickness/2
   );
   const end = new THREE.Vector3(
@@ -345,10 +349,11 @@ function addRamp(){
   const center = start.clone().add(end).multiplyScalar(0.5);
   const dz = end.z - start.z;
   const dy = end.y - start.y;
-  const rampLength = Math.sqrt(dz*dz + dy*dy);
+  let rampLength = Math.sqrt(dz*dz + dy*dy);
   const angle = Math.atan2(dy, dz);
 
   if(state.rampType==='Düz'){
+    rampLength *= 0.95; // Sadece düz rampada boyu kısalt
     mesh = new THREE.Mesh(new THREE.BoxGeometry(rampWidth, rampThick, rampLength), mats.düz);
     mesh.position.copy(center);
     mesh.rotation.set(-angle, 0, 0);
@@ -375,7 +380,7 @@ function addRamp(){
     // Dalga fonksiyonunun ilk y değerini de hesaba kat
     function waveY(z) { return Math.sin(z * 0.5) * 0.5; }
     mesh.position.copy(start);
-    mesh.position.y = start.y - rampThick/2 - waveY(-rampLength/2 -2);
+    mesh.position.y = start.y - rampThick/2 - waveY(-rampLength/2) - 0.5;
     mesh.rotation.set(-angle, 0, 0);
     scene.add(mesh);
 
@@ -388,6 +393,7 @@ function addRamp(){
     body.position.copy(mesh.position);
     body.quaternion.copy(mesh.quaternion);
     world.addBody(body);
+
   } else if(state.rampType==='Spiral'){
     const spiralRadius = size/4;
     const spiralTurns = 2.2;
@@ -425,6 +431,7 @@ function addRamp(){
     body.position.copy(mesh.position);
     body.quaternion.copy(mesh.quaternion);
     world.addBody(body);
+
     // --- Spiral rampaya korkuluk ekle ---
     const railHeight = 0.4;
     const railThickness = 0.1;
@@ -545,6 +552,18 @@ function releaseBarriers() {
   // Yarış başlatma ve zaman atama
   const now = performance.now();
   objects.forEach(o => {
+    let closestLane = 'Bilinmiyor';
+    let minDist = Infinity;
+    for (const [ad, xPos] of Object.entries(rampLanes)) {
+      const dist = Math.abs(o.body.position.x - xPos);
+      if (dist < minDist) {
+        minDist = dist;
+        closestLane = ad;
+      }
+    }
+    o.mesh.userData.lane = closestLane;
+  });
+  objects.forEach(o => {
     o.mesh.userData.startTime = now;
     o.mesh.userData.finishTime = null;
     o.mesh.userData.finished = false;
@@ -563,6 +582,18 @@ function releaseBarriers() {
 function startRace() {
   // Tüm toplar için başlama zamanını kaydet
   const now = performance.now();
+  objects.forEach(o => {
+    let closestLane = 'Bilinmiyor';
+    let minDist = Infinity;
+    for (const [ad, xPos] of Object.entries(rampLanes)) {
+      const dist = Math.abs(o.body.position.x - xPos);
+      if (dist < minDist) {
+        minDist = dist;
+        closestLane = ad;
+      }
+    }
+    o.mesh.userData.lane = closestLane;
+  });
   objects.forEach(o => {
     o.mesh.userData.startTime = now;
     o.mesh.userData.finishTime = null;
@@ -631,18 +662,9 @@ function checkRaceFinish() {
         o.mesh.userData.finished = true;
         o.mesh.userData.finishTime = performance.now();
         const time = (o.mesh.userData.finishTime - o.mesh.userData.startTime) / 1000;
-        // --- Şerit tespiti ---
-        let laneName = 'Bilinmiyor';
-        let minDist = Infinity;
-        for (const [ad, xPos] of Object.entries(rampLanes)) {
-          const dist = Math.abs(x - xPos);
-          if (dist < minDist) {
-            minDist = dist;
-            laneName = ad;
-          }
-        }
+        // --- Şerit tespiti: Artık yarışa başlanan şerit gösterilecek ---
         raceResults.push({
-          lane: laneName,
+          lane: o.mesh.userData.lane || 'Bilinmiyor',
           time,
           mesh: o.mesh
         });
@@ -684,6 +706,38 @@ function animate() {
       body.sleepTimeLimit = 0;
       body.wakeUp();
       // Yalnızca bir tuşa basılıysa tork uygula
+      if (torque.x !== 0 || torque.z !== 0) {
+        body.torque.x += torque.x;
+        body.torque.y += torque.y;
+        body.torque.z += torque.z;
+      }
+    } else if (activeObj.mesh.geometry.type === 'BoxGeometry') {
+      // Kutuya tork uygula (yuvarlanma için)
+      let torque = new CANNON.Vec3(0, 0, 0);
+      const torqueMag = 100;
+      if (keyState['w']) torque.x -= torqueMag;
+      if (keyState['s']) torque.x += torqueMag;
+      if (keyState['a']) torque.z += torqueMag;
+      if (keyState['d']) torque.z -= torqueMag;
+      body.sleepSpeedLimit = 0;
+      body.sleepTimeLimit = 0;
+      body.wakeUp();
+      if (torque.x !== 0 || torque.z !== 0) {
+        body.torque.x += torque.x;
+        body.torque.y += torque.y;
+        body.torque.z += torque.z;
+      }
+    } else if (activeObj.mesh.geometry.type === 'CylinderGeometry') {
+      // Silindire tork uygula (yuvarlanma için)
+      let torque = new CANNON.Vec3(0, 0, 0);
+      const torqueMag = 100;
+      if (keyState['w']) torque.x -= torqueMag;
+      if (keyState['s']) torque.x += torqueMag;
+      if (keyState['a']) torque.z += torqueMag;
+      if (keyState['d']) torque.z -= torqueMag;
+      body.sleepSpeedLimit = 0;
+      body.sleepTimeLimit = 0;
+      body.wakeUp();
       if (torque.x !== 0 || torque.z !== 0) {
         body.torque.x += torque.x;
         body.torque.y += torque.y;
@@ -752,6 +806,12 @@ function spawnObject(laneName = state.lane) {
       q.setFromAxisAngle(new CANNON.Vec3(1,0,0), Math.PI/2);
       body = new CANNON.Body({mass:1, material: objectMaterial});
       body.addShape(cyl, new CANNON.Vec3(), q);
+      body.linearDamping = 0.6;
+      body.angularDamping = 0.6;
+      // Pozisyonu üst platformun üstüne tam oturt, rotasyonu sıfırla
+      pos.y = topMesh.position.y + 0.5;
+      mesh.rotation.set(0, 0, 0);
+      body.quaternion.setFromEuler(0, 0, 0);
       break;
     default:
       mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5,16,16), mats.metal);
@@ -765,7 +825,17 @@ function spawnObject(laneName = state.lane) {
   world.addBody(body);
   // Sadece nesne adı (Küre#1, Kutu#2, Silindir#3 ...)
   const name = `${state.objType}#${objectCounter++}`;
-  mesh.userData = { startTime: null, finishTime: null, finished: false, lane: laneName, name };
+  // X konumuna en yakın şerit adını bul
+  let closestLane = 'Bilinmiyor';
+  let minDist = Infinity;
+  for (const [ad, xPos] of Object.entries(rampLanes)) {
+    const dist = Math.abs(pos.x - xPos);
+    if (dist < minDist) {
+      minDist = dist;
+      closestLane = ad;
+    }
+  }
+  mesh.userData = { startTime: null, finishTime: null, finished: false, lane: closestLane, name };
   objects.push({mesh, body});
   updateObjectList();
 }
