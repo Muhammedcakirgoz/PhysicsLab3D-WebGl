@@ -122,6 +122,8 @@ world.addBody(topBody);
 ].forEach(cfg=>{
   const m = new THREE.Mesh(new THREE.BoxGeometry(...cfg.sz), mats.zemin);
   m.position.set(...cfg.pos);
+  m.castShadow = true;
+  m.receiveShadow = true;
   scene.add(m);
   const b = new CANNON.Body({ mass:0 });
   b.addShape(new CANNON.Box(new CANNON.Vec3(cfg.sz[0]/2, cfg.sz[1]/2, cfg.sz[2]/2)));
@@ -142,6 +144,8 @@ function addLaneGapWalls(y, z) {
       if (wallLen > 0.1) {
         const m = new THREE.Mesh(new THREE.BoxGeometry(wallLen, wallH, wallT), mats.zemin);
         m.position.set(wallCenter, y, z);
+        m.castShadow = true;
+        m.receiveShadow = true;
         scene.add(m);
         const b = new CANNON.Body({ mass:0 });
         b.addShape(new CANNON.Box(new CANNON.Vec3(wallLen/2, wallH/2, wallT/2)));
@@ -157,6 +161,8 @@ function addLaneGapWalls(y, z) {
     if (wallLen > 0.1) {
       const m = new THREE.Mesh(new THREE.BoxGeometry(wallLen, wallH, wallT), mats.zemin);
       m.position.set(wallCenter, y, z);
+      m.castShadow = true;
+      m.receiveShadow = true;
       scene.add(m);
       const b = new CANNON.Body({ mass:0 });
       b.addShape(new CANNON.Box(new CANNON.Vec3(wallLen/2, wallH/2, wallT/2)));
@@ -187,6 +193,8 @@ world.addBody(botBody);
 ].forEach(cfg=>{
   const m=new THREE.Mesh(new THREE.BoxGeometry(...cfg.sz), mats.zemin);
   m.position.set(...cfg.pos);
+  m.castShadow = true;
+  m.receiveShadow = true;
   scene.add(m);
   const b=new CANNON.Body({ mass:0 });
   b.addShape(new CANNON.Box(new CANNON.Vec3(cfg.sz[0]/2, cfg.sz[1]/2, cfg.sz[2]/2)));
@@ -868,6 +876,8 @@ function spawnObject(laneName = state.lane) {
       body.linearDamping = 0.1;
       body.angularDamping = 0.1;
   }
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   mesh.position.copy(pos);
   scene.add(mesh);
   body.position.copy(pos);
