@@ -63,16 +63,22 @@ world.broadphase = new CANNON.NaiveBroadphase();
 // --- sürtünmesiz kayan ramp ve cisimler için materyal tanımları ---
 const rampMaterial   = new CANNON.Material('rampMaterial');
 const objectMaterial = new CANNON.Material('objectMaterial');
+const lowFrictionMaterial = new CANNON.Material('lowFrictionMaterial');
 
-// ramp <-> obje etkileşiminde friction=0, restitution=0.1
-const slipperyContact = new CANNON.ContactMaterial(
+// Sürtünmeyi artır
+const betterContact = new CANNON.ContactMaterial(
   rampMaterial,
   objectMaterial,
-  { friction: 0.0, restitution: 0.1 }
+  { friction: 0.3, restitution: 0.1 }
 );
-world.addContactMaterial(slipperyContact);
-// opsiyonel: tüm default kontaklar için de bunu kullan
-world.defaultContactMaterial = slipperyContact;
+const lowFrictionContact = new CANNON.ContactMaterial(
+  lowFrictionMaterial,
+  objectMaterial,
+  { friction: 0.01, restitution: 0.1 }
+);
+world.addContactMaterial(betterContact);
+world.addContactMaterial(lowFrictionContact);
+world.defaultContactMaterial = betterContact;
 
 // Materials & Constants
 const loader     = new THREE.TextureLoader();
@@ -122,7 +128,7 @@ world.addBody(topBody);
 const botMesh = new THREE.Mesh(new THREE.BoxGeometry(size,0.2,size), mats.zemin2);
 botMesh.position.set(0,-4,-10);
 scene.add(botMesh);
-const botBody = new CANNON.Body({ mass:0 });
+const botBody = new CANNON.Body({ mass:0, material: lowFrictionMaterial });
 botBody.addShape(new CANNON.Box(new CANNON.Vec3(size/2,0.1,size/2)));
 botBody.position.copy(botMesh.position);
 world.addBody(botBody);
@@ -328,7 +334,7 @@ function addRamp(){
   const platformThickness = 0.2;
   const start = new THREE.Vector3(
     x,
-    topMesh.position.y + platformThickness/2 + rampThick/2,
+    topMesh.position.y + rampThick/2,
     topMesh.position.z - size/2 + wallT + platformThickness/2
   );
   const end = new THREE.Vector3(
@@ -625,8 +631,18 @@ function checkRaceFinish() {
         o.mesh.userData.finished = true;
         o.mesh.userData.finishTime = performance.now();
         const time = (o.mesh.userData.finishTime - o.mesh.userData.startTime) / 1000;
+        // --- Şerit tespiti ---
+        let laneName = 'Bilinmiyor';
+        let minDist = Infinity;
+        for (const [ad, xPos] of Object.entries(rampLanes)) {
+          const dist = Math.abs(x - xPos);
+          if (dist < minDist) {
+            minDist = dist;
+            laneName = ad;
+          }
+        }
         raceResults.push({
-          lane: o.mesh.userData.lane || 'Bilinmiyor',
+          lane: laneName,
           time,
           mesh: o.mesh
         });
@@ -636,7 +652,7 @@ function checkRaceFinish() {
           o.mesh.material = new THREE.MeshStandardMaterial({ color: 'lime' });
         }
         // Sonuncu topu yarış bitince kırmızıya boya
-        if (finishedCount === objects.length) {
+        if (finishedCount === objects.length && objects.length > 1) {
           const last = raceResults[raceResults.length-1];
           last.mesh.material = new THREE.MeshStandardMaterial({ color: 'red' });
         }
@@ -655,10 +671,31 @@ function animate() {
   if (activeObj) {
     const body = activeObj.body;
     const speed = 0.1;
-    if (keyState['w']) body.position.z -= speed;
-    if (keyState['s']) body.position.z += speed;
-    if (keyState['a']) body.position.x -= speed;
-    if (keyState['d']) body.position.x += speed;
+    // Eğer obje bir küre ise, tork uygula (dönme için)
+    if (activeObj.mesh.geometry.type === 'SphereGeometry') {
+      let torque = new CANNON.Vec3(0, 0, 0);
+      const torqueMag = 125; // Tork büyüklüğü artırıldı
+      if (keyState['w']) torque.x -= torqueMag;
+      if (keyState['s']) torque.x += torqueMag;
+      if (keyState['a']) torque.z += torqueMag;
+      if (keyState['d']) torque.z -= torqueMag;
+      // Uykuya geçmesini engelle
+      body.sleepSpeedLimit = 0;
+      body.sleepTimeLimit = 0;
+      body.wakeUp();
+      // Yalnızca bir tuşa basılıysa tork uygula
+      if (torque.x !== 0 || torque.z !== 0) {
+        body.torque.x += torque.x;
+        body.torque.y += torque.y;
+        body.torque.z += torque.z;
+      }
+    } else {
+      // Diğer nesneler için eski öteleme
+      if (keyState['w']) body.position.z -= speed;
+      if (keyState['s']) body.position.z += speed;
+      if (keyState['a']) body.position.x -= speed;
+      if (keyState['d']) body.position.x += speed;
+    }
   }
 
   // Sadece henüz "serbest bırak" yapılmadıysa, objeyi Y ekseninde sabitle:
@@ -719,6 +756,8 @@ function spawnObject(laneName = state.lane) {
     default:
       mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5,16,16), mats.metal);
       body = new CANNON.Body({mass:1, material: objectMaterial ,shape: new CANNON.Sphere(0.5)});
+      body.linearDamping = 0.1;
+      body.angularDamping = 0.1;
   }
   mesh.position.copy(pos);
   scene.add(mesh);
